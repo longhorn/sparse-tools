@@ -3,6 +3,9 @@
 *.a
 *.so
 
+# test data files
+*.bar
+
 # Folders
 _obj
 _test

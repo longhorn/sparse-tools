@@ -23,7 +23,9 @@ func server(addr TCPEndPoint, serveOnce /*test flag*/ bool) {
 	if nil != err {
 		log.Fatal("Connection listener error:", err)
 	}
+    defer ln.Close()
 	log.Info("Sync server is up...")
+    
 	for {
 		conn, err := ln.Accept()
 		if nil != err {

@@ -6,6 +6,7 @@ import "encoding/gob"
 import "os"
 import "errors"
 import "strconv"
+import "fmt"
 
 // TCPEndPoint tcp connection address
 type TCPEndPoint struct {
@@ -235,6 +236,11 @@ func processFileInterval(r FileInterval, fileStream chan<- fileChunk, netStream 
 	}
 }
 
+// prints chan codes and lengths to trace
+// - sequence and interleaving of chan processing
+// - how much of the chan buffer is used
+const traceChannelLoad = false
+
 func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus chan<- bool) {
 	status := true
 	for {
@@ -259,6 +265,9 @@ func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus c
 			continue // discard the chunk
 		}
 
+		if traceChannelLoad {
+			fmt.Fprint(os.Stderr, len(netStream), "n")
+		}
 		// Encode and send data to the network
 		err := encoder.Encode(chunk.header)
 		if err != nil {
@@ -275,18 +284,25 @@ func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus c
 			status = false
 			continue
 		}
+		if traceChannelLoad {
+			fmt.Fprint(os.Stderr, "N\n")
+		}
 	}
 	log.Info("Finished sending file diff, status =", status)
 	netStatus <- status
 }
 
 func fileReader(id int, file *os.File, fileStream <-chan fileChunk, netStream chan<- diffChunk, fileStatus chan<- bool) {
+	idBeg := map[int]string{0: "a", 1: "b", 2: "c", 3: "d"}
+	idEnd := map[int]string{0: "A", 1: "B", 2: "C", 3: "D"}
 	for {
 		chunk := <-fileStream
 		if chunk.eof {
 			break
 		}
-
+		if traceChannelLoad {
+			fmt.Fprint(os.Stderr, len(fileStream), idBeg[id])
+		}
 		// Check interval type
 		r := chunk.header
 		if SparseData != r.Kind {
@@ -306,6 +322,9 @@ func fileReader(id int, file *os.File, fileStream <-chan fileChunk, netStream ch
 		}
 
 		// Send file data
+		if traceChannelLoad {
+			fmt.Fprint(os.Stderr, idEnd[id])
+		}
 		netStream <- diffChunk{status, r, data}
 	}
 	log.Info("Finished reading file")

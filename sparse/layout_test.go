@@ -76,18 +76,18 @@ func layoutTest(t *testing.T, name string, layoutModel []FileInterval) {
 
 	f, err := os.Open(name)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	defer f.Close()
 
 	size, err := f.Seek(0, os.SEEK_END)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
-	layoutActual := RetrieveLayout(f, Interval{0, size})
-	if !reflect.DeepEqual(layoutModel, layoutActual) {
-		t.Error("wrong sparse layout")
+	layoutActual, err := RetrieveLayout(f, Interval{0, size})
+	if err != nil || !reflect.DeepEqual(layoutModel, layoutActual) {
+		t.Fatal("wrong sparse layout")
 	}
 
 	os.Remove(name)
@@ -98,23 +98,23 @@ func punchHoleTest(t *testing.T, name string, layoutModel []FileInterval, hole I
 
 	f, err := os.OpenFile(name, os.O_RDWR, 0)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	defer f.Close()
 
 	size, err := f.Seek(0, os.SEEK_END)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
 	err = PunchHole(f, hole)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
-	layoutActual := RetrieveLayout(f, Interval{0, size})
-	if !reflect.DeepEqual(layoutExpected, layoutActual) {
-		t.Error("wrong sparse layout")
+	layoutActual, err := RetrieveLayout(f, Interval{0, size})
+	if err != nil || !reflect.DeepEqual(layoutExpected, layoutActual) {
+		t.Fatal("wrong sparse layout")
 	}
 
 	os.Remove(name)

@@ -149,10 +149,10 @@ func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) {
 
     // Sync
 	go TestServer(remoteAddr)
-	status := SyncFile(localPath, remoteAddr, remotePath)
+	err := SyncFile(localPath, remoteAddr, remotePath)
 
     // Verify
-	if !status {
+	if err != nil {
 		t.Fatal("sync error")
 	}
 	if !filesAreEqual(localPath, remotePath) {
@@ -180,9 +180,9 @@ func Benchmark_1G_SendFiles(b *testing.B) {
 	defer log.LevelPop()
 
 	go TestServer(remoteAddr)
-	status := SyncFile(localPath, remoteAddr, remotePath)
+	err := SyncFile(localPath, remoteAddr, remotePath)
 
-	if !status {
+	if err != nil {
 		b.Fatal("sync error")
 	}
 }

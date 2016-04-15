@@ -20,7 +20,7 @@ func server(addr TCPEndPoint, serveOnce /*test flag*/ bool) {
 	// listen on all interfaces
 	EndPoint := addr.Host + ":" + strconv.Itoa(int(addr.Port))
 	ln, err := net.Listen("tcp", EndPoint) // accept connection on port
-	if nil != err {
+	if err != nil {
 		log.Fatal("Connection listener error:", err)
 	}
 	defer ln.Close()
@@ -28,7 +28,7 @@ func server(addr TCPEndPoint, serveOnce /*test flag*/ bool) {
 
 	for {
 		conn, err := ln.Accept()
-		if nil != err {
+		if err != nil {
 			log.Fatal("Connection accept error:", err)
 		}
 		go serveConnection(conn)
@@ -59,7 +59,7 @@ func serveConnection(conn net.Conn) {
 	decoder := gob.NewDecoder(conn)
 	var request requestHeader
 	err := decoder.Decode(&request)
-	if nil != err {
+	if err != nil {
 		log.Error("Protocol decoder error:", err)
 		return
 	}
@@ -72,13 +72,13 @@ func serveConnection(conn net.Conn) {
 	case syncRequestCode:
 		var path string
 		err := decoder.Decode(&path)
-		if nil != err {
+		if err != nil {
 			log.Error("Protocol decoder error:", err)
 			return
 		}
 		var size int64
 		err = decoder.Decode(&size)
-		if nil != err {
+		if err != nil {
 			log.Error("Protocol decoder error:", err)
 			return
 		}
@@ -91,9 +91,9 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 
 	// Open destination file
 	file, err := os.OpenFile(path, os.O_RDWR, 0)
-	if nil != err {
+	if err != nil {
 		file, err = os.Create(path)
-		if nil != err {
+		if err != nil {
 			log.Error("Failed to create file:", string(path), err)
 			encoder.Encode(false) // NACK request
 			return
@@ -102,22 +102,26 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	defer file.Close()
 
 	// Resize the file
-	if err = file.Truncate(size); nil != err {
+	if err = file.Truncate(size); err != nil {
 		log.Error("Failed to resize file:", string(path), err)
 		encoder.Encode(false) // NACK request
         return
 	}
 
-	encoder.Encode(true) // ACK request
 
 	// load
-	layout := loadFile(file)
+	layout, err := loadFile(file)
+    if err != nil {
+		encoder.Encode(false) // NACK request
+        return
+    }
+	encoder.Encode(true) // ACK request
 
 	// send layout back
 	items := len(layout)
 	log.Info("Sending layout, item count=", items)
 	err = encoder.Encode(layout)
-	if nil != err {
+	if err != nil {
 		log.Error("Protocol encoder error:", err)
 		return
 	}
@@ -127,7 +131,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	for status {
 		var delta FileInterval
 		err := decoder.Decode(&delta)
-		if nil != err {
+		if err != nil {
 			log.Error("Protocol decoder error:", err)
 			status = false
 			break
@@ -141,7 +145,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 		case SparseData:
 			var data []byte
 			err = decoder.Decode(&data)
-			if nil != err {
+			if err != nil {
 				log.Error("Protocol data decoder error:", err)
 				status = false
 				break
@@ -153,7 +157,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 			}
 			log.Debug("writing data...")
 			_, err = file.WriteAt(data, delta.Begin)
-			if nil != err {
+			if err != nil {
 				log.Error("Failed to write file")
 				status = false
 				break
@@ -161,7 +165,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 		case SparseHole:
 			log.Debug("trimming...")
 			err := PunchHole(file, delta.Interval)
-			if nil != err {
+			if err != nil {
 				log.Error("Failed to trim file")
 				status = false
 				break
@@ -174,16 +178,16 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	// reply to client with status
 	log.Info("Sync remote status=", status)
 	err = encoder.Encode(status)
-	if nil != err {
+	if err != nil {
 		log.Error("Protocol encoder error:", err)
 		return
 	}
 }
 
-func loadFile(file *os.File) []FileInterval {
+func loadFile(file *os.File) ([]FileInterval, error) {
 	size, err := file.Seek(0, os.SEEK_END)
 	if err != nil {
-		return make([]FileInterval, 0)
+		return make([]FileInterval, 0), err
 	}
 
 	return RetrieveLayout(file, Interval{0, size})

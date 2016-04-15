@@ -59,7 +59,7 @@ const (
 )
 
 // RetrieveLayout retrieves sparse file hole and data layout
-func RetrieveLayout(file *os.File, r Interval) []FileInterval {
+func RetrieveLayout(file *os.File, r Interval) ([]FileInterval, error) {
 	layout := make([]FileInterval, 0, 128)
 	curr := r.Begin
 
@@ -73,14 +73,14 @@ func RetrieveLayout(file *os.File, r Interval) []FileInterval {
 		if interval.Len() > 0 {
 			layout = append(layout, interval)
 		}
-		return layout
+		return layout, nil
 	} else if errHole != nil {
 		// Data only
 		interval = FileInterval{SparseData, Interval{curr, r.End}}
 		if interval.Len() > 0 {
 			layout = append(layout, interval)
 		}
-		return layout
+		return layout, nil
 	}
 
 	if offsetData < offsetHole {
@@ -102,10 +102,17 @@ func RetrieveLayout(file *os.File, r Interval) []FileInterval {
 			whence = seekHole
 		}
 
-		next, err := file.Seek(curr, whence)
-		if err != nil {
-			// no more intervals
-			next = r.End // close the last interval
+		// Note: file.Seek masks syscall.ENXIO hence syscall is used instead
+		next, errno := syscall.Seek(int(file.Fd()), curr, whence)
+		if errno != nil {
+			switch errno {
+			case syscall.ENXIO:
+				// no more intervals
+				next = r.End // close the last interval
+			default:
+				// mimic standard "os"" package error handler
+				return nil, &os.PathError{Op: "seek", Path: file.Name(), Err: errno}
+			}
 		}
 		if SparseData == interval.Kind {
 			// End of data, handle the last hole if any
@@ -119,7 +126,7 @@ func RetrieveLayout(file *os.File, r Interval) []FileInterval {
 			layout = append(layout, interval)
 		}
 	}
-	return layout
+	return layout, nil
 }
 
 // PunchHole in a sparse file, preserve file size

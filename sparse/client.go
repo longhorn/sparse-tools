@@ -36,14 +36,16 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string) bool {
 	}
 	defer conn.Close()
 
-	status := sendSyncRequest(conn, remotePath, size)
+	encoder := gob.NewEncoder(conn)
+	decoder := gob.NewDecoder(conn)
+	status := sendSyncRequest(encoder, decoder, remotePath, size)
 	if !status {
 		return false
 	}
 
 	localLayout := getLocalFileLayout(file)
-	remoteLayout := getRemoteFileLayout(conn)
-	processDiff(localLayout, remoteLayout, file, conn)
+	remoteLayout := getRemoteFileLayout(decoder)
+	processDiff(encoder, decoder, localLayout, remoteLayout, file)
 	return status
 }
 
@@ -60,10 +62,7 @@ func connect(host, port string) net.Conn {
 	return nil
 }
 
-func sendSyncRequest(conn net.Conn, path string, size int64) bool {
-	encoder := gob.NewEncoder(conn)
-	decoder := gob.NewDecoder(conn)
-
+func sendSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, size int64) bool {
 	err := encoder.Encode(requestHeader{requestMagic, syncRequestCode})
 	if nil != err {
 		log.Error("Client protocol encoder error:", err)
@@ -98,8 +97,7 @@ func getLocalFileLayout(file *os.File) []FileInterval {
 	return RetrieveLayout(file, Interval{0, size})
 }
 
-func getRemoteFileLayout(conn net.Conn) []FileInterval {
-	decoder := gob.NewDecoder(conn)
+func getRemoteFileLayout(decoder *gob.Decoder) []FileInterval {
 	var layout []FileInterval
 	err := decoder.Decode(&layout)
 	if nil != err {
@@ -109,10 +107,9 @@ func getRemoteFileLayout(conn net.Conn) []FileInterval {
 	return layout
 }
 
-func processDiff(local, remote []FileInterval, file *os.File, conn net.Conn) bool {
+func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local, remote []FileInterval, file *os.File) bool {
 	// Local:   __ _*
 	// Remote:  *_ **
-	encoder := gob.NewEncoder(conn)
 	status := true
 	for i, j := 0, 0; status && i < len(local); {
 		if j >= len(remote) {
@@ -158,7 +155,6 @@ func processDiff(local, remote []FileInterval, file *os.File, conn net.Conn) boo
 		status = sendFileData(FileInterval{SparseHole, Interval{0, 0}}, file, encoder)
 	}
     var statusRemote bool;
-	decoder := gob.NewDecoder(conn)
 	err := decoder.Decode(&statusRemote)
 	if nil != err {
 		log.Fatal("Cient protocol remote status error:", err)

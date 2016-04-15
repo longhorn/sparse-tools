@@ -82,13 +82,12 @@ func serveConnection(conn net.Conn) {
 			log.Error("Protocol decoder error:", err)
 			return
 		}
-		serveSyncRequest(conn, path, size)
+    	encoder := gob.NewEncoder(conn)
+		serveSyncRequest(encoder, decoder, path, size)
 	}
 }
 
-func serveSyncRequest(conn net.Conn, path string, size int64) {
-	encoder := gob.NewEncoder(conn)
-	decoder := gob.NewDecoder(conn)
+func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, size int64) {
 
 	// Open destination file
 	file, err := os.OpenFile(path, os.O_RDWR, 0)

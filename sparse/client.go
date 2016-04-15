@@ -17,20 +17,26 @@ const connectionRetries = 5
 // SyncFile synchronizes local file to remote host
 func SyncFile(localPath string, addr TCPEndPoint, remotePath string) bool {
 	file, err := os.Open(localPath)
-	if err != nil {
+	if nil != err {
 		log.Error("Failed to open local source file:", localPath)
 		return false
 	}
 	defer file.Close()
 
+	size, errSize := file.Seek(0, os.SEEK_END)
+	if nil != errSize {
+		log.Error("Failed to get size of local source file:", localPath, errSize)
+		return false
+	}
+
 	conn := connect(addr.Host, strconv.Itoa(int(addr.Port)))
-	if conn == nil {
+	if nil == conn {
 		log.Error("Failed to connect to", addr)
 		return false
 	}
 	defer conn.Close()
 
-	status := sendSyncRequest(conn, remotePath)
+	status := sendSyncRequest(conn, remotePath, size)
 	if !status {
 		return false
 	}
@@ -54,7 +60,7 @@ func connect(host, port string) net.Conn {
 	return nil
 }
 
-func sendSyncRequest(conn net.Conn, path string) bool {
+func sendSyncRequest(conn net.Conn, path string, size int64) bool {
 	encoder := gob.NewEncoder(conn)
 	decoder := gob.NewDecoder(conn)
 
@@ -67,8 +73,13 @@ func sendSyncRequest(conn net.Conn, path string) bool {
 	if nil != err {
 		log.Error("Client protocol encoder error:", err)
 		return false
+	}    
+	err = encoder.Encode(size)
+	if nil != err {
+		log.Error("Client protocol encoder error:", err)
+		return false
 	}
-    
+
     var ack bool
     err = decoder.Decode(&ack)
     if nil != err {
@@ -81,7 +92,7 @@ func sendSyncRequest(conn net.Conn, path string) bool {
 
 func getLocalFileLayout(file *os.File) []FileInterval {
 	size, err := file.Seek(0, os.SEEK_END)
-	if err != nil {
+	if nil !=err {
 		log.Fatal("cannot retrieve local source file size", err)
 	}
 	return RetrieveLayout(file, Interval{0, size})

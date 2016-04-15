@@ -23,9 +23,9 @@ func server(addr TCPEndPoint, serveOnce /*test flag*/ bool) {
 	if nil != err {
 		log.Fatal("Connection listener error:", err)
 	}
-    defer ln.Close()
+	defer ln.Close()
 	log.Info("Sync server is up...")
-    
+
 	for {
 		conn, err := ln.Accept()
 		if nil != err {
@@ -44,61 +44,72 @@ func server(addr TCPEndPoint, serveOnce /*test flag*/ bool) {
 type requestCode int
 
 const (
-    requestMagic requestCode = 31415926
-    syncRequestCode requestCode = 1
+	requestMagic    requestCode = 31415926
+	syncRequestCode requestCode = 1
 )
 
 type requestHeader struct {
-    Magic requestCode
-    Code requestCode
+	Magic requestCode
+	Code  requestCode
 }
 
 func serveConnection(conn net.Conn) {
 	defer conn.Close()
-    
+
 	decoder := gob.NewDecoder(conn)
-    var request requestHeader
-    err := decoder.Decode(&request)
-    if nil != err {
-        log.Error("Protocol decoder error:", err)
-        return
-    }
-    if requestMagic!= request.Magic {
-        log.Error("Bad request")
-        return
-    }
-    
-    switch request.Code {
-    case syncRequestCode:
-        var path string 
-        err := decoder.Decode(&path)
-        if nil != err {
-            log.Error("Protocol decoder error:", err)
-            return
-        }
-        serveSyncRequest(conn, path)
-    }
+	var request requestHeader
+	err := decoder.Decode(&request)
+	if nil != err {
+		log.Error("Protocol decoder error:", err)
+		return
+	}
+	if requestMagic != request.Magic {
+		log.Error("Bad request")
+		return
+	}
+
+	switch request.Code {
+	case syncRequestCode:
+		var path string
+		err := decoder.Decode(&path)
+		if nil != err {
+			log.Error("Protocol decoder error:", err)
+			return
+		}
+		var size int64
+		err = decoder.Decode(&size)
+		if nil != err {
+			log.Error("Protocol decoder error:", err)
+			return
+		}
+		serveSyncRequest(conn, path, size)
+	}
 }
 
-func serveSyncRequest(conn net.Conn, path string)  {
-    encoder := gob.NewEncoder(conn)
+func serveSyncRequest(conn net.Conn, path string, size int64) {
+	encoder := gob.NewEncoder(conn)
 	decoder := gob.NewDecoder(conn)
-    
-    
+
+	// Open destination file
 	file, err := os.OpenFile(path, os.O_RDWR, 0)
 	if nil != err {
 		file, err = os.Create(path)
 		if nil != err {
-			log.Error("Failed to create file:", string(path))
-			reply := "create file failure"
-			// reply back to client
-			conn.Write([]byte(reply + "\n"))
+			log.Error("Failed to create file:", string(path), err)
+			encoder.Encode(false) // NACK request
 			return
 		}
 	}
 	defer file.Close()
 
-    encoder.Encode(true) // ACK request
+	// Resize the file
+	if err = file.Truncate(size); nil != err {
+		log.Error("Failed to resize file:", string(path), err)
+		encoder.Encode(false) // NACK request
+        return
+	}
+
+	encoder.Encode(true) // ACK request
 
 	// load
 	layout := loadFile(file)
@@ -133,40 +144,40 @@ func serveSyncRequest(conn net.Conn, path string)  {
 			err = decoder.Decode(&data)
 			if nil != err {
 				log.Error("Protocol data decoder error:", err)
-                status = false
-                break
+				status = false
+				break
 			}
 			if int64(len(data)) != delta.Len() {
 				log.Error("Failed to receive data")
-                status = false
-                break
+				status = false
+				break
 			}
 			log.Debug("writing data...")
 			_, err = file.WriteAt(data, delta.Begin)
 			if nil != err {
 				log.Error("Failed to write file")
-                status = false
-                break
+				status = false
+				break
 			}
 		case SparseHole:
 			log.Debug("trimming...")
 			err := PunchHole(file, delta.Interval)
 			if nil != err {
 				log.Error("Failed to trim file")
-                status = false
-                break
+				status = false
+				break
 			}
 		}
 	}
-    
-    file.Sync() //TODO: switch to O_DIRECT and compare performance
 
-    // reply to client with status
-    log.Info("Sync remote status=", status)
+	file.Sync() //TODO: switch to O_DIRECT and compare performance
+
+	// reply to client with status
+	log.Info("Sync remote status=", status)
 	err = encoder.Encode(status)
 	if nil != err {
 		log.Error("Protocol encoder error:", err)
-        return
+		return
 	}
 }
 

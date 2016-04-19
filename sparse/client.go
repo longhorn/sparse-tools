@@ -61,8 +61,12 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string) error {
 func connect(host, port string) net.Conn {
 	// connect to this socket
 	endpoint := host + ":" + port
+	raddr, err := net.ResolveTCPAddr("tcp", endpoint)
+	if err != nil {
+		log.Fatal("Connection address resolution error:", err)
+	}
 	for retries := 1; retries <= connectionRetries; retries++ {
-		conn, err := net.Dial("tcp", endpoint)
+		conn, err := net.DialTCP("tcp", nil, raddr)
 		if err == nil {
 			return conn
 		}

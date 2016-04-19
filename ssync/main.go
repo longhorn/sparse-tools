@@ -53,8 +53,8 @@ Examples:
 			fmt.Fprintf(os.Stderr, "Syncing %s to %s@%s:%d...\n", srcPath, dstPath, endpoint.Host, endpoint.Port)
 		}
 
-		status := sparse.SyncFile(srcPath, endpoint, dstPath)
-		if !status {
+		err := sparse.SyncFile(srcPath, endpoint, dstPath)
+		if err != nil {
 			os.Exit(1)
 		}
 	}

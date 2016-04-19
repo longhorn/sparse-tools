@@ -5,10 +5,11 @@ import "github.com/kp6/alphorn/log"
 import "os"
 import "encoding/gob"
 import "strconv"
+import "time"
 
 // Server daemon
 func Server(addr TCPEndPoint) {
-	server(addr, false)
+	server(addr, true /*serve single connection for now*/)
 }
 
 // TestServer daemon serves only one connection for each test then exits
@@ -16,14 +17,21 @@ func TestServer(addr TCPEndPoint) {
 	server(addr, true)
 }
 
+const serverConnectionTimeout = 15 * time.Second
+
 func server(addr TCPEndPoint, serveOnce /*test flag*/ bool) {
 	// listen on all interfaces
 	EndPoint := addr.Host + ":" + strconv.Itoa(int(addr.Port))
-	ln, err := net.Listen("tcp", EndPoint) // accept connection on port
+	laddr, err := net.ResolveTCPAddr("tcp", EndPoint)
+	if err != nil {
+		log.Fatal("Connection listener address resolution error:", err)
+	}
+	ln, err := net.ListenTCP("tcp", laddr)
 	if err != nil {
 		log.Fatal("Connection listener error:", err)
 	}
 	defer ln.Close()
+	ln.SetDeadline(time.Now().Add(serverConnectionTimeout))
 	log.Info("Sync server is up...")
 
 	for {
@@ -82,7 +90,7 @@ func serveConnection(conn net.Conn) {
 			log.Error("Protocol decoder error:", err)
 			return
 		}
-    	encoder := gob.NewEncoder(conn)
+		encoder := gob.NewEncoder(conn)
 		serveSyncRequest(encoder, decoder, path, size)
 	}
 }
@@ -105,16 +113,15 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	if err = file.Truncate(size); err != nil {
 		log.Error("Failed to resize file:", string(path), err)
 		encoder.Encode(false) // NACK request
-        return
+		return
 	}
-
 
 	// load
 	layout, err := loadFile(file)
-    if err != nil {
+	if err != nil {
 		encoder.Encode(false) // NACK request
-        return
-    }
+		return
+	}
 	encoder.Encode(true) // ACK request
 
 	// send layout back

@@ -35,18 +35,21 @@ func server(addr TCPEndPoint, serveOnce /*test flag*/ bool) {
 	log.Info("Sync server is up...")
 
 	for {
-		conn, err := ln.Accept()
+		conn, err := ln.AcceptTCP()
 		if err != nil {
 			log.Fatal("Connection accept error:", err)
 		}
-		go serveConnection(conn)
 
 		if serveOnce {
 			// This is to avoid server listening port conflicts while running tests
 			// exit after single connection request
+            serveConnection(conn)
 			break
 		}
+
+		go serveConnection(conn)
 	}
+	log.Info("Sync server exit.")
 }
 
 type requestCode int

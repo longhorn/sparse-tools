@@ -20,6 +20,7 @@ type FileIntervalKind int
 const (
 	SparseData FileIntervalKind = 1 + iota
 	SparseHole
+    SparseIgnore // ignore file interval (equal src vs dst part)
 )
 
 // FileInterval describes either sparse data Interval or a hole

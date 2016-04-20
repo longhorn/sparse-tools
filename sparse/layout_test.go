@@ -11,17 +11,17 @@ const name = "foo.bar"
 
 func TestLayout0(t *testing.T) {
 	layoutModel := []FileInterval{}
-	layoutTest(t, name, layoutModel)
+	layoutTest(t, name, layoutModel, layoutModel)
 }
 
 func TestLayout1(t *testing.T) {
 	layoutModel := []FileInterval{{SparseHole, Interval{0, 4 * Blocks}}}
-	layoutTest(t, name, layoutModel)
+	layoutTest(t, name, layoutModel, layoutModel)
 }
 
 func TestLayout2(t *testing.T) {
 	layoutModel := []FileInterval{{SparseData, Interval{0, 4 * Blocks}}}
-	layoutTest(t, name, layoutModel)
+	layoutTest(t, name, layoutModel, layoutModel)
 }
 
 func TestLayout3(t *testing.T) {
@@ -29,7 +29,7 @@ func TestLayout3(t *testing.T) {
 		{SparseHole, Interval{0, 2 * Blocks}},
 		{SparseData, Interval{2 * Blocks, 4 * Blocks}},
 	}
-	layoutTest(t, name, layoutModel)
+	layoutTest(t, name, layoutModel, layoutModel)
 }
 
 func TestLayout4(t *testing.T) {
@@ -37,7 +37,7 @@ func TestLayout4(t *testing.T) {
 		{SparseData, Interval{0, 2 * Blocks}},
 		{SparseHole, Interval{2 * Blocks, 4 * Blocks}},
 	}
-	layoutTest(t, name, layoutModel)
+	layoutTest(t, name, layoutModel, layoutModel)
 }
 
 func TestLayout5(t *testing.T) {
@@ -46,7 +46,7 @@ func TestLayout5(t *testing.T) {
 		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
 		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
 	}
-	layoutTest(t, name, layoutModel)
+	layoutTest(t, name, layoutModel, layoutModel)
 }
 
 func TestLayout6(t *testing.T) {
@@ -55,7 +55,33 @@ func TestLayout6(t *testing.T) {
 		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
 		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
 	}
-	layoutTest(t, name, layoutModel)
+	layoutTest(t, name, layoutModel, layoutModel)
+}
+
+func TestLayout7(t *testing.T) {
+	layoutModel := []FileInterval{
+		{SparseData, Interval{0, 1 * Blocks}},
+		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
+		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+	}
+	layoutExpected := []FileInterval{
+		{SparseData, Interval{0, 2 * Blocks}},
+		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+	}
+	layoutTest(t, name, layoutModel, layoutExpected)
+}
+
+func TestLayout8(t *testing.T) {
+	layoutModel := []FileInterval{
+		{SparseData, Interval{0, 1 * Blocks}},
+		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+	}
+	layoutExpected := []FileInterval{
+		{SparseData, Interval{0, 1 * Blocks}},
+		{SparseHole, Interval{1 * Blocks, 3 * Blocks}},
+	}
+	layoutTest(t, name, layoutModel, layoutExpected)
 }
 
 func TestPunchHole0(t *testing.T) {
@@ -71,7 +97,7 @@ func TestPunchHole0(t *testing.T) {
 	punchHoleTest(t, name, layoutModel, Interval{0, 1 * Blocks}, layoutExpected)
 }
 
-func layoutTest(t *testing.T, name string, layoutModel []FileInterval) {
+func layoutTest(t *testing.T, name string, layoutModel, layoutExpected []FileInterval) {
 	createTestSparseFile(name, layoutModel)
 
 	f, err := os.Open(name)
@@ -86,7 +112,7 @@ func layoutTest(t *testing.T, name string, layoutModel []FileInterval) {
 	}
 
 	layoutActual, err := RetrieveLayout(f, Interval{0, size})
-	if err != nil || !reflect.DeepEqual(layoutModel, layoutActual) {
+	if err != nil || !reflect.DeepEqual(layoutExpected, layoutActual) {
 		t.Fatal("wrong sparse layout")
 	}
 

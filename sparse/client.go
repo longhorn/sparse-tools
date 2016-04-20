@@ -1,11 +1,18 @@
 package sparse
 
-import "net"
-import "github.com/rancher/sparse-tools/log"
+import (
+	"crypto/sha1"
+	"net"
+	"os"
+	"strconv"
+
+    "github.com/rancher/sparse-tools/log"
+)
+
 import "encoding/gob"
-import "os"
+
 import "errors"
-import "strconv"
+
 import "fmt"
 import "time"
 
@@ -16,6 +23,7 @@ type TCPEndPoint struct {
 }
 
 const connectionRetries = 5
+const verboseClient = true
 
 // SyncFile synchronizes local file to remote host
 func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int) error {
@@ -51,12 +59,25 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 		log.Error("Failed to retrieve local file layout:", err)
 		return err
 	}
-	remoteLayout, err := getRemoteFileLayout(decoder)
-	if err != nil {
-		log.Error("Failed to retrieve remote file layout:", err)
-		return err
+	splitterStream := make(chan FileInterval, 128)
+	fileStream := make(chan FileInterval, 128)
+	unorderedStream := make(chan HashedDataInterval, 128)
+	orderedStream := make(chan HashedDataInterval, 128)
+	go IntervalSplitter(splitterStream, fileStream)
+	go FileReader(fileStream, file, unorderedStream)
+	go OrderIntervals(unorderedStream, orderedStream)
+
+	// Get remote file intervals and their hashes
+	netInStream := make(chan HashedInterval, 128)
+	netInStreamDone := make(chan bool)
+	go netDstReceiver(decoder, netInStream, netInStreamDone)
+
+	for _, interval := range localLayout {
+		splitterStream <- interval
 	}
-	return processDiff(encoder, decoder, localLayout, remoteLayout, file)
+	close(splitterStream)
+
+	return processDiff(encoder, decoder, orderedStream, netInStream, netInStreamDone, file)
 }
 
 func connect(host, port string, timeout int) net.Conn {
@@ -115,15 +136,39 @@ func getLocalFileLayout(file *os.File) ([]FileInterval, error) {
 	return RetrieveLayout(file, Interval{0, size})
 }
 
-func getRemoteFileLayout(decoder *gob.Decoder) ([]FileInterval, error) {
-	var layout []FileInterval
-	err := decoder.Decode(&layout)
-	if err != nil {
-		log.Fatal("Cient protocol error:", err)
-		return nil, err
+// Get remote hashed intervals
+func netDstReceiver(decoder *gob.Decoder, netInStream chan<- HashedInterval, netInStreamDone chan<- bool) {
+	var r HashedInterval
+	status := true
+	for {
+		if verboseClient {
+			log.Debug("Client.netDstReceiver decoding...")
+		}
+		err := decoder.Decode(&r)
+		if err != nil {
+			log.Fatal("Cient protocol error:", err)
+			status = false
+			break
+		}
+		// interval := r.Interval
+		if r.Kind == SparseIgnore {
+			if verboseClient {
+				log.Debug("Client.netDstReceiver got <eof>")
+			}
+			break
+		}
+		if verboseClient {
+			switch r.Kind {
+			case SparseData:
+				log.Debug("Client.netDstReceiver got data", r.FileInterval, "hash[", len(r.Hash), "]")
+			case SparseHole:
+				log.Debug("Client.netDstReceiver got hole", r.FileInterval)
+			}
+		}
+		netInStream <- r
 	}
-	log.Debug("Received layout:", layout)
-	return layout, nil
+	close(netInStream)
+	netInStreamDone <- status
 }
 
 // file reading chunk
@@ -135,61 +180,76 @@ type fileChunk struct {
 // network transfer chunk
 type diffChunk struct {
 	status bool // read file or network send error yield false
-	header FileInterval
-	data   interface{}
+	header DataInterval
 }
 
-func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local, remote []FileInterval, file *os.File) error {
+func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local <-chan HashedDataInterval, remote <-chan HashedInterval, netInStreamDone <-chan bool, file *os.File) error {
 	// Local:   __ _*
 	// Remote:  *_ **
 	const concurrentReaders = 4
 	netStream := make(chan diffChunk, 128)
 	netStatus := make(chan bool)
 	go networkSender(netStream, encoder, netStatus)
-	fileStream := make(chan fileChunk, 128)
-	fileStatus := make(chan bool)
-	for i := 0; i < concurrentReaders; i++ {
-		if 0 == i {
-			go fileReader(i, file, fileStream, netStream, fileStatus)
-		} else {
-			f, _ := os.Open(file.Name())
-			go fileReader(i, f, fileStream, netStream, fileStatus)
-		}
-	}
+	// fileStream := make(chan fileChunk, 128)
+	// fileStatus := make(chan bool)
+	// for i := 0; i < concurrentReaders; i++ {
+	// 	if 0 == i {
+	// 		go fileReader(i, file, fileStream, netStream, fileStatus)
+	// 	} else {
+	// 		f, _ := os.Open(file.Name())
+	// 		go fileReader(i, f, fileStream, netStream, fileStatus)
+	// 	}
+	// }
+	fileHasher := sha1.New()
+	fileHasher.Write(HashSalt)
 
-	for i, j := 0, 0; i < len(local); {
-		if j >= len(remote) {
+	lrange := <-local
+	rrange := <-remote
+	for lrange.Len() != 0 {
+		if rrange.Len() == 0 {
 			// Copy local tail
-			processFileInterval(local[i], fileStream, netStream)
-			i++
+			if verboseClient {
+				logData("LHASH", lrange.Data)
+			}
+			fileHasher.Write(lrange.Data)
+			processFileInterval(lrange, HashedInterval{FileInterval{SparseHole, lrange.Interval}, make([]byte, 0)}, netStream)
+			lrange = <-local
 			continue
 		}
 		// Diff
-		lrange := local[i]
-		rrange := remote[j]
+		if verboseClient {
+			log.Debug("Diff:", lrange.FileInterval, rrange.FileInterval)
+		}
 		if lrange.Begin == rrange.Begin {
 			if lrange.End > rrange.End {
-				local[i].End = rrange.End
-				if SparseData == local[i].Kind || local[i].Kind != remote[j].Kind {
-					processFileInterval(local[i], fileStream, netStream)
+				unprocessed := lrange.End
+				lrange.End = rrange.End
+				if verboseClient {
+					logData("LHASH", lrange.Data[:lrange.Len()])
 				}
-				local[i].Begin = rrange.End
-				local[i].End = lrange.End
-				j++
+				fileHasher.Write(lrange.Data[:lrange.Len()])
+				processFileInterval(lrange, rrange, netStream)
+				lrange.Begin = rrange.End
+				lrange.End = unprocessed
+				rrange = <-remote
 				continue
 			} else if lrange.End < rrange.End {
-				if SparseData == local[i].Kind || local[i].Kind != remote[j].Kind {
-					processFileInterval(local[i], fileStream, netStream)
+				if verboseClient {
+					logData("LHASH", lrange.Data)
 				}
-				remote[j].Begin = lrange.End
-				i++
+				fileHasher.Write(lrange.Data)
+				processFileInterval(lrange, HashedInterval{FileInterval{rrange.Kind, lrange.Interval}, make([]byte, 0)}, netStream)
+				rrange.Begin = lrange.End
+				lrange = <-local
 				continue
 			}
-			if SparseData == local[i].Kind || local[i].Kind != remote[j].Kind {
-				processFileInterval(local[i], fileStream, netStream)
+			if verboseClient {
+				logData("LHASH", lrange.Data)
 			}
-			i++
-			j++
+			fileHasher.Write(lrange.Data)
+			processFileInterval(lrange, rrange, netStream)
+			lrange = <-local
+			rrange = <-remote
 		} else {
 			// Should never happen
 			log.Fatal("internal error")
@@ -198,16 +258,21 @@ func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local, remote []Fil
 	}
 	log.Info("Finished processing file diff")
 
-	// stop file readers
-	for i := 0; i < concurrentReaders; i++ {
-		fileStream <- fileChunk{true, FileInterval{SparseHole, Interval{0, 0}}}
-		<-fileStatus // wait for reader completion
-	}
+	// // stop file readers
+	// for i := 0; i < concurrentReaders; i++ {
+	// 	fileStream <- fileChunk{true, FileInterval{SparseHole, Interval{0, 0}}}
+	// 	<-fileStatus // wait for reader completion
+	// }
+
+	// make sure we finished consuming dst hashes
+	status := <-netInStreamDone // netDstReceiver finished
+	log.Info("Finished consuming remote file hashes")
+
 	// Send end of transmission
-	netStream <- diffChunk{true, FileInterval{SparseHole, Interval{0, 0}}, nil}
+	netStream <- diffChunk{true, DataInterval{FileInterval{SparseIgnore, Interval{0, 0}}, make([]byte, 0)}}
 
 	// get network sender status
-	status := <-netStatus
+	status = <-netStatus
 	if !status {
 		return errors.New("netwoek transfer failure")
 	}
@@ -221,27 +286,58 @@ func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local, remote []Fil
 	if !statusRemote {
 		return errors.New("failure on remote sync site")
 	}
+	var hashRemote []byte
+	err = decoder.Decode(&hashRemote)
+	if err != nil {
+		log.Fatal("Cient protocol remote hash error:", err)
+		return err
+	}
+	hashLocal := fileHasher.Sum(nil)
+	log.Info("hashLocal=", hashLocal)
+	log.Info("hashRemote=", hashRemote)
+	if isHashDifferent(hashLocal, hashRemote) {
+		return errors.New("file hash divergence")
+	}
 	return nil
 }
 
-func processFileInterval(r FileInterval, fileStream chan<- fileChunk, netStream chan<- diffChunk) {
-	const batch = 128 * Blocks
+func isHashDifferent(a, b []byte) bool {
+	if len(a) != len(b) {
+		return true
+	}
+	for i, val := range a {
+		if val != b[i] {
+			return true
+		}
+	}
+	return false // hashes are equal
+}
 
-	// Process hole
-	if SparseHole == r.Kind {
-		netStream <- diffChunk{true, r, nil}
+func processFileInterval(local HashedDataInterval, remote HashedInterval, netStream chan<- diffChunk) {
+	if local.Kind != remote.Kind {
+		// Different intreval types, send the diff
+		netStream <- diffChunk{true, DataInterval{local.FileInterval, local.Data}}
 		return
 	}
 
-	// Process data in chunks
-	for offset := r.Begin; offset < r.End; {
-		size := batch
-		if offset+size > r.End {
-			size = r.End - offset
-		}
-		fileStream <- fileChunk{false, FileInterval{SparseData, Interval{offset, offset + size}}}
-		offset += size
+	// The intervals types are the same
+	if SparseHole == local.Kind {
+		// Process hole, no syncronization is required
+		local.Kind = SparseIgnore
+		netStream <- diffChunk{true, DataInterval{local.FileInterval, local.Data}}
+		return
 	}
+
+	// Data file interval
+	if isHashDifferent(local.Hash, remote.Hash) {
+		netStream <- diffChunk{true, DataInterval{local.FileInterval, local.Data}}
+		return
+	}
+
+	// No diff, just communicate we processed it
+	//TODO: this apparently can be avoided but requires revision of the protocol
+	local.Kind = SparseIgnore
+	netStream <- diffChunk{true, DataInterval{local.FileInterval, make([]byte, 0)}}
 }
 
 // prints chan codes and lengths to trace
@@ -255,7 +351,10 @@ func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus c
 		chunk := <-netStream
 		if 0 == chunk.header.Len() {
 			// eof: last 0 len header
-			err := encoder.Encode(chunk.header)
+			if verboseClient {
+				log.Debug("Client.networkSender <eof>")
+			}
+			err := encoder.Encode(chunk.header.FileInterval)
 			if err != nil {
 				log.Error("Client protocol encoder error:", err)
 				status = false
@@ -276,17 +375,24 @@ func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus c
 		if traceChannelLoad {
 			fmt.Fprint(os.Stderr, len(netStream), "n")
 		}
+
 		// Encode and send data to the network
-		err := encoder.Encode(chunk.header)
+		if verboseClient {
+			log.Debug("Client.networkSender sending:", chunk.header.FileInterval)
+		}
+		err := encoder.Encode(chunk.header.FileInterval)
 		if err != nil {
 			log.Error("Client protocol encoder error:", err)
 			status = false
 			continue
 		}
-		if nil == chunk.data {
+		if len(chunk.header.Data) == 0 {
 			continue
 		}
-		err = encoder.Encode(chunk.data)
+		if verboseClient {
+			log.Debug("Client.networkSender sending data")
+		}
+		err = encoder.Encode(chunk.header.Data)
 		if err != nil {
 			log.Error("Client protocol encoder error:", err)
 			status = false
@@ -300,6 +406,7 @@ func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus c
 	netStatus <- status
 }
 
+// obsolete method
 func fileReader(id int, file *os.File, fileStream <-chan fileChunk, netStream chan<- diffChunk, fileStatus chan<- bool) {
 	idBeg := map[int]string{0: "a", 1: "b", 2: "c", 3: "d"}
 	idEnd := map[int]string{0: "A", 1: "B", 2: "C", 3: "D"}
@@ -333,7 +440,7 @@ func fileReader(id int, file *os.File, fileStream <-chan fileChunk, netStream ch
 		if traceChannelLoad {
 			fmt.Fprint(os.Stderr, idEnd[id])
 		}
-		netStream <- diffChunk{status, r, data}
+		netStream <- diffChunk{status, DataInterval{r, data}}
 	}
 	log.Info("Finished reading file")
 	fileStatus <- true

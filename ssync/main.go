@@ -33,7 +33,7 @@ Examples:
 	args := flag.Args()
 	if *daemon {
 		// Daemon mode
-		endpoint := sparse.TCPEndPoint{"" /*bind to all*/, int16(*port)}
+		endpoint := sparse.TCPEndPoint{Host:"" /*bind to all*/, Port:int16(*port)}
 		if *verbose {
 			fmt.Fprintln(os.Stderr, "Listening on", endpoint, "...")
 		} else {
@@ -55,7 +55,7 @@ Examples:
 			cmdError("too many arguments")
 		}
 
-		endpoint := sparse.TCPEndPoint{*host, int16(*port)}
+		endpoint := sparse.TCPEndPoint{Host:*host, Port:int16(*port)}
 		if *verbose {
 			fmt.Fprintf(os.Stderr, "Syncing %s to %s@%s:%d...\n", srcPath, dstPath, endpoint.Host, endpoint.Port)
 		} else {
@@ -63,7 +63,7 @@ Examples:
 			defer log.LevelPop()
 		}
 
-		err := sparse.SyncFile(srcPath, endpoint, dstPath, *timeout)
+		err, _ := sparse.SyncFile(srcPath, endpoint, dstPath, *timeout)
 		if err != nil {
 			os.Exit(1)
 		}

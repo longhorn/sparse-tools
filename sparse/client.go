@@ -26,24 +26,25 @@ const connectionRetries = 5
 const verboseClient = true
 
 // SyncFile synchronizes local file to remote host
-func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int) error {
+func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int) (hashLocal []byte, err error) {
+	hashLocal = make([]byte, 0) // empty hash for errors
 	file, err := os.Open(localPath)
 	if err != nil {
 		log.Error("Failed to open local source file:", localPath)
-		return err
+		return
 	}
 	defer file.Close()
 
 	size, errSize := file.Seek(0, os.SEEK_END)
 	if errSize != nil {
 		log.Error("Failed to get size of local source file:", localPath, errSize)
-		return err
+		return
 	}
 
 	conn := connect(addr.Host, strconv.Itoa(int(addr.Port)), timeout)
 	if nil == conn {
 		log.Error("Failed to connect to", addr)
-		return err
+		return
 	}
 	defer conn.Close()
 
@@ -51,13 +52,13 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	decoder := gob.NewDecoder(conn)
 	status := sendSyncRequest(encoder, decoder, remotePath, size)
 	if !status {
-		return err
+		return
 	}
 
 	localLayout, err := getLocalFileLayout(file)
 	if err != nil {
 		log.Error("Failed to retrieve local file layout:", err)
-		return err
+		return
 	}
 	splitterStream := make(chan FileInterval, 128)
 	fileStream := make(chan FileInterval, 128)
@@ -183,9 +184,10 @@ type diffChunk struct {
 	header DataInterval
 }
 
-func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local <-chan HashedDataInterval, remote <-chan HashedInterval, netInStreamDone <-chan bool, file *os.File) error {
+func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local <-chan HashedDataInterval, remote <-chan HashedInterval, netInStreamDone <-chan bool, file *os.File) (hashLocal []byte, err error) {
 	// Local:   __ _*
 	// Remote:  *_ **
+	hashLocal = make([]byte, 0) // empty hash for errors
 	const concurrentReaders = 4
 	netStream := make(chan diffChunk, 128)
 	netStatus := make(chan bool)
@@ -211,7 +213,7 @@ func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local <-chan Hashed
 			if verboseClient {
 				logData("LHASH", lrange.Data)
 			}
-			fileHasher.Write(lrange.Data)
+			hashFileData(fileHasher, lrange.Len(), lrange.Data)
 			processFileInterval(lrange, HashedInterval{FileInterval{SparseHole, lrange.Interval}, make([]byte, 0)}, netStream)
 			lrange = <-local
 			continue
@@ -227,7 +229,7 @@ func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local <-chan Hashed
 				if verboseClient {
 					logData("LHASH", lrange.Data[:lrange.Len()])
 				}
-				fileHasher.Write(lrange.Data[:lrange.Len()])
+				hashFileData(fileHasher, lrange.Len(), lrange.Data[:lrange.Len()])
 				processFileInterval(lrange, rrange, netStream)
 				lrange.Begin = rrange.End
 				lrange.End = unprocessed
@@ -237,7 +239,7 @@ func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local <-chan Hashed
 				if verboseClient {
 					logData("LHASH", lrange.Data)
 				}
-				fileHasher.Write(lrange.Data)
+				hashFileData(fileHasher, lrange.Len(), lrange.Data)
 				processFileInterval(lrange, HashedInterval{FileInterval{rrange.Kind, lrange.Interval}, make([]byte, 0)}, netStream)
 				rrange.Begin = lrange.End
 				lrange = <-local
@@ -246,14 +248,15 @@ func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local <-chan Hashed
 			if verboseClient {
 				logData("LHASH", lrange.Data)
 			}
-			fileHasher.Write(lrange.Data)
+			hashFileData(fileHasher, lrange.Len(), lrange.Data)
 			processFileInterval(lrange, rrange, netStream)
 			lrange = <-local
 			rrange = <-remote
 		} else {
 			// Should never happen
 			log.Fatal("internal error")
-			return errors.New("internal error")
+			err = errors.New("internal error")
+			return
 		}
 	}
 	log.Info("Finished processing file diff")
@@ -274,31 +277,36 @@ func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local <-chan Hashed
 	// get network sender status
 	status = <-netStatus
 	if !status {
-		return errors.New("netwoek transfer failure")
+		err = errors.New("netwoek transfer failure")
+		return
 	}
 
 	var statusRemote bool
-	err := decoder.Decode(&statusRemote)
+	err = decoder.Decode(&statusRemote)
 	if err != nil {
 		log.Fatal("Cient protocol remote status error:", err)
-		return err
+		return
 	}
 	if !statusRemote {
-		return errors.New("failure on remote sync site")
+		err = errors.New("failure on remote sync site")
+		return
 	}
 	var hashRemote []byte
 	err = decoder.Decode(&hashRemote)
 	if err != nil {
 		log.Fatal("Cient protocol remote hash error:", err)
-		return err
+		return
 	}
-	hashLocal := fileHasher.Sum(nil)
+
+	// Compare file hashes
+	hashLocal = fileHasher.Sum(nil)
 	log.Info("hashLocal=", hashLocal)
 	log.Info("hashRemote=", hashRemote)
 	if isHashDifferent(hashLocal, hashRemote) {
-		return errors.New("file hash divergence")
+		err = errors.New("file hash divergence: storage error or block hash collision")
+		return
 	}
-	return nil
+	return
 }
 
 func isHashDifferent(a, b []byte) bool {

@@ -7,6 +7,8 @@ import "encoding/gob"
 import "strconv"
 import "time"
 import "crypto/sha1"
+import "hash"
+import "encoding/binary"
 
 // Server daemon
 func Server(addr TCPEndPoint, timeout int) {
@@ -411,6 +413,19 @@ func logData(prefix string, data []byte) {
 	}
 }
 
+func hashFileData(fileHasher hash.Hash, dataLen int64, data []byte) {
+	// Hash hole length or data if any
+	if len(data) == 0 {
+		// hash hole
+		hole := make([]byte, 8)
+		binary.PutVarint(hole, dataLen)
+		fileHasher.Write(hole)
+
+	} else {
+		fileHasher.Write(data)
+	}
+}
+
 // Validator merges source and diff data; produces hash of the destination file
 func Validator(checksumStream, netInStream <-chan DataInterval, resultStream chan<- []byte) {
 	fileHasher := sha1.New()
@@ -423,7 +438,7 @@ func Validator(checksumStream, netInStream <-chan DataInterval, resultStream cha
 			if verboseServer {
 				logData("RHASH", q.Data)
 			}
-			fileHasher.Write(q.Data)
+			hashFileData(fileHasher, q.Len(), q.Data)
 		} else {
 			qi := q.Interval
 			ri := r.Interval
@@ -436,7 +451,7 @@ func Validator(checksumStream, netInStream <-chan DataInterval, resultStream cha
 					if verboseServer {
 						logData("RHASH", r.Data)
 					}
-					fileHasher.Write(r.Data)
+					hashFileData(fileHasher, r.Len(), r.Data)
 				} else {
 					// Hash diff data
 					if verboseServer {
@@ -445,7 +460,7 @@ func Validator(checksumStream, netInStream <-chan DataInterval, resultStream cha
 					if verboseServer {
 						logData("RHASH", q.Data)
 					}
-					fileHasher.Write(q.Data)
+					hashFileData(fileHasher, q.Len(), q.Data)
 				}
 				r = <-checksumStream // original dst file data
 			} else {
@@ -457,7 +472,7 @@ func Validator(checksumStream, netInStream <-chan DataInterval, resultStream cha
 					if verboseServer {
 						logData("RHASH", q.Data)
 					}
-					fileHasher.Write(q.Data)
+					hashFileData(fileHasher, q.Len(), q.Data)
 				} else {
 					log.Fatal("Server.Validator internal error")
 				}

@@ -135,7 +135,31 @@ func TestSyncFile9(t *testing.T) {
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
-func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) {
+func TestSyncHash1(t *testing.T) {
+	var hash1, hash2 []byte
+	{
+		layoutLocal := []FileInterval{
+			{SparseData, Interval{0, 1 * Blocks}},
+			{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+		}
+		layoutRemote := layoutLocal
+		hash1 = testSyncFile(t, layoutLocal, layoutRemote)
+	}
+	{
+
+		layoutLocal := []FileInterval{
+			{SparseData, Interval{0, 1 * Blocks}},
+			{SparseHole, Interval{1 * Blocks, 3 * Blocks}},
+		}
+		layoutRemote := layoutLocal
+		hash2 = testSyncFile(t, layoutLocal, layoutRemote)
+	}
+    if !isHashDifferent(hash1, hash2) {
+        t.Fatal("Files with same data content but different layouts should have unique hashes")
+    }
+}
+
+func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) (hashLocal []byte) {
 	// Only log errors
 	log.LevelPush(log.LevelError)
 	defer log.LevelPop()
@@ -150,7 +174,7 @@ func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) {
 
 	// Sync
 	go TestServer(remoteAddr, timeout)
-	err := SyncFile(localPath, remoteAddr, remotePath, timeout)
+	hashLocal, err := SyncFile(localPath, remoteAddr, remotePath, timeout)
 
 	// Verify
 	if err != nil {
@@ -160,6 +184,7 @@ func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) {
 		t.Fatal("file content diverged")
 	}
 	filesCleanup()
+    return
 }
 
 func Benchmark_1G_InitFiles(b *testing.B) {
@@ -181,7 +206,7 @@ func Benchmark_1G_SendFiles(b *testing.B) {
 	defer log.LevelPop()
 
 	go TestServer(remoteAddr, timeout)
-	err := SyncFile(localPath, remoteAddr, remotePath, timeout)
+	err, _ := SyncFile(localPath, remoteAddr, remotePath, timeout)
 
 	if err != nil {
 		b.Fatal("sync error")

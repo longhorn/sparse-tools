@@ -4,10 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+
+	"github.com/kp6/alphorn/log"
 	"github.com/kp6/alphorn/sparse"
 )
 
 func main() {
+    defaultNonVerboseLogLevel := log.LevelWarn // set if -verbose is false
 	// Command line parsing
 	verbose := flag.Bool("verbose", false, "verbose mode")
 	daemon := flag.Bool("daemon", false, "daemon mode (run on remote host)")
@@ -32,6 +35,9 @@ Examples:
 		endpoint := sparse.TCPEndPoint{"" /*bind to all*/, int16(*port)}
 		if *verbose {
 			fmt.Fprintln(os.Stderr, "Listening on", endpoint, "...")
+		} else {
+			log.LevelPush(defaultNonVerboseLogLevel)
+			defer log.LevelPop()
 		}
 
 		sparse.Server(endpoint)
@@ -51,6 +57,9 @@ Examples:
 		endpoint := sparse.TCPEndPoint{*host, int16(*port)}
 		if *verbose {
 			fmt.Fprintf(os.Stderr, "Syncing %s to %s@%s:%d...\n", srcPath, dstPath, endpoint.Host, endpoint.Port)
+		} else {
+			log.LevelPush(defaultNonVerboseLogLevel)
+			defer log.LevelPop()
 		}
 
 		err := sparse.SyncFile(srcPath, endpoint, dstPath)

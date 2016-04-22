@@ -96,7 +96,10 @@ func connect(host, port string, timeout int) net.Conn {
 			return conn
 		}
 		log.Warn("Failed connection to", endpoint, "Retrying...")
-		time.Sleep(1 * time.Second)
+        if timeNow != timeStart {
+            // only sleep after the second attempt to speedup tests
+		    time.Sleep(1 * time.Second)
+        } 
 	}
 	return nil
 }

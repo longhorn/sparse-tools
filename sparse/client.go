@@ -300,9 +300,9 @@ func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local <-chan Hashed
 
 	// Compare file hashes
 	hashLocal = fileHasher.Sum(nil)
-	log.Info("hashLocal=", hashLocal)
-	log.Info("hashRemote=", hashRemote)
 	if isHashDifferent(hashLocal, hashRemote) {
+        log.Warn("hashLocal =", hashLocal)
+        log.Warn("hashRemote=", hashRemote)
 		err = errors.New("file hash divergence: storage error or block hash collision")
 		return
 	}

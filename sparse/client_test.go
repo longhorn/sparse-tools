@@ -206,7 +206,7 @@ func Benchmark_1G_SendFiles(b *testing.B) {
 	defer log.LevelPop()
 
 	go TestServer(remoteAddr, timeout)
-	err, _ := SyncFile(localPath, remoteAddr, remotePath, timeout)
+	_, err := SyncFile(localPath, remoteAddr, remotePath, timeout)
 
 	if err != nil {
 		b.Fatal("sync error")

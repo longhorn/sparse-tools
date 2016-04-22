@@ -8,18 +8,17 @@ import "strconv"
 import "time"
 
 // Server daemon
-func Server(addr TCPEndPoint) {
-	server(addr, true /*serve single connection for now*/)
+func Server(addr TCPEndPoint, timeout int) {
+	server(addr, true /*serve single connection for now*/, timeout)
 }
 
 // TestServer daemon serves only one connection for each test then exits
-func TestServer(addr TCPEndPoint) {
-	server(addr, true)
+func TestServer(addr TCPEndPoint, timeout int) {
+	server(addr, true, timeout)
 }
 
-const serverConnectionTimeout = 15 * time.Second
-
-func server(addr TCPEndPoint, serveOnce /*test flag*/ bool) {
+func server(addr TCPEndPoint, serveOnce /*test flag*/ bool, timeout int) {
+    serverConnectionTimeout := time.Duration(timeout) * time.Second
 	// listen on all interfaces
 	EndPoint := addr.Host + ":" + strconv.Itoa(int(addr.Port))
 	laddr, err := net.ResolveTCPAddr("tcp", EndPoint)

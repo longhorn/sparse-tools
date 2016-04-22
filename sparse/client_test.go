@@ -159,6 +159,30 @@ func TestSyncHash1(t *testing.T) {
     }
 }
 
+func TestSyncHash2(t *testing.T) {
+	var hash1, hash2 []byte
+	{
+		layoutLocal := []FileInterval{
+			{SparseData, Interval{0, 1 * Blocks}},
+			{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+		}
+		layoutRemote := []FileInterval{}
+		hash1 = testSyncFile(t, layoutLocal, layoutRemote)
+	}
+	{
+
+		layoutLocal := []FileInterval{
+			{SparseData, Interval{0, 1 * Blocks}},
+			{SparseHole, Interval{1 * Blocks, 3 * Blocks}},
+		}
+		layoutRemote := []FileInterval{}
+		hash2 = testSyncFile(t, layoutLocal, layoutRemote)
+	}
+    if !isHashDifferent(hash1, hash2) {
+        t.Fatal("Files with same data content but different layouts should have unique hashes")
+    }
+}
+
 func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) (hashLocal []byte) {
 	// Only log errors
 	log.LevelPush(log.LevelError)

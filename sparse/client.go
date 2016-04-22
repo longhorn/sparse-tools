@@ -7,6 +7,7 @@ import "os"
 import "errors"
 import "strconv"
 import "fmt"
+import "time"
 
 // TCPEndPoint tcp connection address
 type TCPEndPoint struct {
@@ -17,7 +18,7 @@ type TCPEndPoint struct {
 const connectionRetries = 5
 
 // SyncFile synchronizes local file to remote host
-func SyncFile(localPath string, addr TCPEndPoint, remotePath string) error {
+func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int) error {
 	file, err := os.Open(localPath)
 	if err != nil {
 		log.Error("Failed to open local source file:", localPath)
@@ -31,7 +32,7 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string) error {
 		return err
 	}
 
-	conn := connect(addr.Host, strconv.Itoa(int(addr.Port)))
+	conn := connect(addr.Host, strconv.Itoa(int(addr.Port)), timeout)
 	if nil == conn {
 		log.Error("Failed to connect to", addr)
 		return err
@@ -58,19 +59,22 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string) error {
 	return processDiff(encoder, decoder, localLayout, remoteLayout, file)
 }
 
-func connect(host, port string) net.Conn {
+func connect(host, port string, timeout int) net.Conn {
 	// connect to this socket
 	endpoint := host + ":" + port
 	raddr, err := net.ResolveTCPAddr("tcp", endpoint)
 	if err != nil {
 		log.Fatal("Connection address resolution error:", err)
 	}
-	for retries := 1; retries <= connectionRetries; retries++ {
+	timeStart := time.Now()
+    timeStop := timeStart.Add(time.Duration(timeout)*time.Second)
+	for timeNow := timeStart; timeNow.Before(timeStop); timeNow = time.Now() {
 		conn, err := net.DialTCP("tcp", nil, raddr)
 		if err == nil {
 			return conn
 		}
 		log.Warn("Failed connection to", endpoint, "Retrying...")
+		time.Sleep(1 * time.Second)
 	}
 	return nil
 }

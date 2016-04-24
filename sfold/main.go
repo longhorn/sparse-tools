@@ -6,7 +6,7 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/kp6/alphorn/log"
+	"github.com/rancher/sparse-tools/log"
 )
 
 func main() {

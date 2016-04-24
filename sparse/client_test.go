@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/kp6/alphorn/log"
+	"github.com/rancher/sparse-tools/log"
 )
 
 const localPath = "foo1.bar"

@@ -1,7 +1,7 @@
 package sparse
 
 import "net"
-import "github.com/kp6/alphorn/log"
+import "github.com/rancher/sparse-tools/log"
 import "encoding/gob"
 import "os"
 import "errors"

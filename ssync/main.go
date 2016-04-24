@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kp6/alphorn/log"
-	"github.com/kp6/alphorn/sparse"
+	"github.com/rancher/sparse-tools/log"
+	"github.com/rancher/sparse-tools/sparse"
 )
 
 func main() {

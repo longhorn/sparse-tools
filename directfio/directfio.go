@@ -1,16 +1,11 @@
 package directfio
 
 import (
-	"syscall"
 	"unsafe"
 	"os"
 )
 
 const (
-    // O_DIRECT missing export from syscall 
-    // usage: in os.OpenFile(..., fio.O_DIRECT|..., ...)
-	O_DIRECT = syscall.O_DIRECT
-
 	// what to align the block buffer to
 	alignment = 4096
 
@@ -36,7 +31,7 @@ func WriteAt(file *os.File, data []byte, offset int64) (int, error) {
     }
     // Write unaligned
     buf := AllocateAligned(len(data))
-    copy(data, buf)
+    copy(buf, data)
     n, err := file.WriteAt(buf, offset)
     return n, err
 }

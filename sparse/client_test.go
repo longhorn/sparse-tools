@@ -216,16 +216,26 @@ func Benchmark_1G_InitFiles(b *testing.B) {
 	layoutLocal := []FileInterval{
 		{SparseData, Interval{0, (256 << 10) * Blocks}},
 	}
-	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, (256 << 10) * Blocks}},
-	}
+	layoutRemote := []FileInterval{}
 
 	filesCleanup()
 	createTestSparseFile(localPath, layoutLocal)
 	createTestSparseFile(remotePath, layoutRemote)
 }
 
-func Benchmark_1G_SendFiles(b *testing.B) {
+func Benchmark_1G_SendFiles_Whole(b *testing.B) {
+	log.LevelPush(log.LevelInfo)
+	defer log.LevelPop()
+
+	go TestServer(remoteAddr, timeout)
+	_, err := SyncFile(localPath, remoteAddr, remotePath, timeout)
+
+	if err != nil {
+		b.Fatal("sync error")
+	}
+}
+
+func Benchmark_1G_SendFiles_Diff(b *testing.B) {
 	log.LevelPush(log.LevelInfo)
 	defer log.LevelPop()
 

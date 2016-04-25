@@ -193,7 +193,7 @@ func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local <-chan Hashed
 	hashLocal = make([]byte, 0) // empty hash for errors
 	const concurrentReaders = 4
 	netStream := make(chan diffChunk, 128)
-	netStatus := make(chan bool)
+	netStatus := make(chan netXferStatus)
 	go networkSender(netStream, encoder, netStatus)
 	// fileStream := make(chan fileChunk, 128)
 	// fileStatus := make(chan bool)
@@ -272,14 +272,15 @@ func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local <-chan Hashed
 
 	// make sure we finished consuming dst hashes
 	status := <-netInStreamDone // netDstReceiver finished
-	log.Info("Finished consuming remote file hashes")
+	log.Info("Finished consuming remote file hashes, status=", status)
 
 	// Send end of transmission
 	netStream <- diffChunk{true, DataInterval{FileInterval{SparseIgnore, Interval{0, 0}}, make([]byte, 0)}}
 
 	// get network sender status
-	status = <-netStatus
-	if !status {
+	net := <-netStatus
+	log.Info("Finished sending file diff of", net.byteCount, "(bytes), status=", net.status)
+	if !net.status {
 		err = errors.New("netwoek transfer failure")
 		return
 	}
@@ -356,8 +357,14 @@ func processFileInterval(local HashedDataInterval, remote HashedInterval, netStr
 // - how much of the chan buffer is used
 const traceChannelLoad = false
 
-func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus chan<- bool) {
+type netXferStatus struct {
+    status bool
+    byteCount int64
+}
+
+func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus chan<- netXferStatus) {
 	status := true
+    byteCount := int64(0)
 	for {
 		chunk := <-netStream
 		if 0 == chunk.header.Len() {
@@ -409,12 +416,12 @@ func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus c
 			status = false
 			continue
 		}
+        byteCount += int64(len(chunk.header.Data))
 		if traceChannelLoad {
 			fmt.Fprint(os.Stderr, "N\n")
 		}
 	}
-	log.Info("Finished sending file diff, status =", status)
-	netStatus <- status
+	netStatus <- netXferStatus{status, byteCount}
 }
 
 // obsolete method

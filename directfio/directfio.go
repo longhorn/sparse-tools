@@ -1,16 +1,11 @@
 package directfio
 
 import (
-	"syscall"
 	"unsafe"
 	"os"
 )
 
 const (
-    // O_DIRECT missing export from syscall 
-    // usage: in os.OpenFile(..., fio.O_DIRECT|..., ...)
-	O_DIRECT = syscall.O_DIRECT
-
 	// what to align the block buffer to
 	alignment = 4096
 

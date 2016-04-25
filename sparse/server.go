@@ -197,7 +197,7 @@ func loadFile(file *os.File) ([]FileInterval, error) {
 
 // IntervalSplitter limits file intervals to predefined batch size
 func IntervalSplitter(spltterStream <-chan FileInterval, fileStream chan<- FileInterval) {
-	const batch = 128 * Blocks
+	const batch = 32 * Blocks
 	for r := range spltterStream {
 		switch r.Kind {
 		case SparseHole:

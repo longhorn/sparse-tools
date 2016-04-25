@@ -36,7 +36,7 @@ func WriteAt(file *os.File, data []byte, offset int64) (int, error) {
     }
     // Write unaligned
     buf := AllocateAligned(len(data))
-    copy(data, buf)
+    copy(buf, data)
     n, err := file.WriteAt(buf, offset)
     return n, err
 }

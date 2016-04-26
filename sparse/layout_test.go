@@ -1,6 +1,9 @@
 package sparse
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"reflect"
@@ -116,6 +119,9 @@ func layoutTest(t *testing.T, name string, layoutModel, layoutExpected []FileInt
 		t.Fatal("wrong sparse layout")
 	}
 
+	if checkTestSparseFile(name, layoutModel) != nil {
+		t.Fatal("wrong sparse layout content")
+	}
 	os.Remove(name)
 }
 
@@ -146,6 +152,16 @@ func punchHoleTest(t *testing.T, name string, layoutModel []FileInterval, hole I
 	os.Remove(name)
 }
 
+func makeData(interval FileInterval) []byte {
+	data := make([]byte, interval.Len())
+	if SparseData == interval.Kind {
+		for i := range data {
+			data[i] = byte(interval.Begin/Blocks + 1)
+		}
+	}
+	return data
+}
+
 func createTestSparseFile(name string, layout []FileInterval) {
 	f, err := os.Create(name)
 	if err != nil {
@@ -160,10 +176,7 @@ func createTestSparseFile(name string, layout []FileInterval) {
 	// Fill up data
 	for _, interval := range layout {
 		if SparseData == interval.Kind {
-			data := make([]byte, interval.Len())
-			for i := range data {
-				data[i] = byte(interval.Begin/Blocks + 1)
-			}
+			data := makeData(interval)
 			f.WriteAt(data, interval.Begin)
 		}
 	}
@@ -177,4 +190,40 @@ func createTestSparseFile(name string, layout []FileInterval) {
 	}
 
 	f.Sync()
+}
+
+func checkTestSparseFile(name string, layout []FileInterval) error {
+	f, err := os.Open(name)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	if 0 == len(layout) {
+		return nil // empty file
+	}
+
+	// Read and check data
+	for _, interval := range layout {
+		if SparseData == interval.Kind {
+			dataModel := makeData(interval)
+			data := make([]byte, interval.Len())
+			f.ReadAt(data, interval.Begin)
+			if !bytes.Equal(data, dataModel) {
+				return errors.New(fmt.Sprint("data equality check failure at", interval))
+			}
+		} else if SparseHole == interval.Kind {
+			layoutActual, err := RetrieveLayout(f, interval.Interval)
+			if err != nil {
+				return errors.New(fmt.Sprint("hole retrieval failure at", interval, err))
+			}
+			if len(layoutActual) != 1 {
+				return errors.New(fmt.Sprint("hole check failure at", interval))
+			}
+			if layoutActual[0] != interval {
+				return errors.New(fmt.Sprint("hole equality check failure at", interval))
+			}
+		}
+	}
+	return nil // success
 }

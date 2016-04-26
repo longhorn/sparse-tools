@@ -6,7 +6,8 @@ import (
 	"os"
 	"strconv"
 
-    "github.com/rancher/sparse-tools/log"
+	fio "github.com/rancher/sparse-tools/directfio"
+	"github.com/rancher/sparse-tools/log"
 )
 
 import "encoding/gob"
@@ -28,7 +29,7 @@ const verboseClient = true
 // SyncFile synchronizes local file to remote host
 func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int) (hashLocal []byte, err error) {
 	hashLocal = make([]byte, 0) // empty hash for errors
-	file, err := os.Open(localPath)
+	file, err := fio.OpenFile(localPath, os.O_RDONLY, 0)
 	if err != nil {
 		log.Error("Failed to open local source file:", localPath)
 		return
@@ -96,10 +97,10 @@ func connect(host, port string, timeout int) net.Conn {
 			return conn
 		}
 		log.Warn("Failed connection to", endpoint, "Retrying...")
-        if timeNow != timeStart {
-            // only sleep after the second attempt to speedup tests
-		    time.Sleep(1 * time.Second)
-        } 
+		if timeNow != timeStart {
+			// only sleep after the second attempt to speedup tests
+			time.Sleep(1 * time.Second)
+		}
 	}
 	return nil
 }
@@ -305,8 +306,8 @@ func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local <-chan Hashed
 	// Compare file hashes
 	hashLocal = fileHasher.Sum(nil)
 	if isHashDifferent(hashLocal, hashRemote) {
-        log.Warn("hashLocal =", hashLocal)
-        log.Warn("hashRemote=", hashRemote)
+		log.Warn("hashLocal =", hashLocal)
+		log.Warn("hashRemote=", hashRemote)
 		err = errors.New("file hash divergence: storage error or block hash collision")
 		return
 	}
@@ -358,13 +359,13 @@ func processFileInterval(local HashedDataInterval, remote HashedInterval, netStr
 const traceChannelLoad = false
 
 type netXferStatus struct {
-    status bool
-    byteCount int64
+	status    bool
+	byteCount int64
 }
 
 func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus chan<- netXferStatus) {
 	status := true
-    byteCount := int64(0)
+	byteCount := int64(0)
 	for {
 		chunk := <-netStream
 		if 0 == chunk.header.Len() {
@@ -416,7 +417,7 @@ func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus c
 			status = false
 			continue
 		}
-        byteCount += int64(len(chunk.header.Data))
+		byteCount += int64(len(chunk.header.Data))
 		if traceChannelLoad {
 			fmt.Fprint(os.Stderr, "N\n")
 		}
@@ -445,7 +446,7 @@ func fileReader(id int, file *os.File, fileStream <-chan fileChunk, netStream ch
 		// Read file data
 		data := make([]byte, r.Len())
 		status := true
-		n, err := file.ReadAt(data, r.Begin)
+		n, err := fio.ReadAt(file, data, r.Begin)
 		if err != nil {
 			log.Error("File read error")
 			status = false

@@ -1,14 +1,18 @@
 package sparse
 
-import "net"
-import "github.com/rancher/sparse-tools/log"
-import "os"
-import "encoding/gob"
-import "strconv"
-import "time"
-import "crypto/sha1"
-import "hash"
-import "encoding/binary"
+import (
+	"crypto/sha1"
+	"encoding/binary"
+	"encoding/gob"
+	"hash"
+	"net"
+	"os"
+	"strconv"
+	"time"
+
+	fio "github.com/rancher/sparse-tools/directfio"
+	"github.com/rancher/sparse-tools/log"
+)
 
 // Server daemon
 func Server(addr TCPEndPoint, timeout int) {
@@ -21,6 +25,7 @@ func TestServer(addr TCPEndPoint, timeout int) {
 }
 
 const verboseServer = true
+
 func server(addr TCPEndPoint, serveOnce /*test flag*/ bool, timeout int) {
 	serverConnectionTimeout := time.Duration(timeout) * time.Second
 	// listen on all interfaces
@@ -104,7 +109,7 @@ func serveConnection(conn net.Conn) {
 func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, size int64) {
 
 	// Open destination file
-	file, err := os.OpenFile(path, os.O_RDWR, 0)
+	file, err := fio.OpenFile(path, os.O_RDWR, 0666) 
 	if err != nil {
 		file, err = os.Create(path)
 		if err != nil {
@@ -123,7 +128,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	}
 
 	// load
-	fileRO, err := os.Open(path)
+	fileRO, err := fio.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
 		log.Error("Failed to open file for reading:", string(path), err)
 		encoder.Encode(false) // NACK request
@@ -255,7 +260,7 @@ func FileReader(fileStream <-chan FileInterval, file *os.File, unorderedStream c
 			// Read file data
 			data := make([]byte, r.Len())
 			status := true
-			n, err := file.ReadAt(data, r.Begin)
+			n, err := fio.ReadAt(file, data, r.Begin)
 			if err != nil {
 				status = false
 				log.Error("File read error", status)
@@ -374,7 +379,7 @@ func netReceiver(decoder *gob.Decoder, file *os.File, netInStream chan<- DataInt
 			netInStream <- DataInterval{delta, data}
 
 			log.Debug("writing data...")
-			_, err = file.WriteAt(data, delta.Begin)
+			_, err = fio.WriteAt(file, data, delta.Begin)
 			if err != nil {
 				log.Error("Failed to write file")
 				status = false
@@ -399,7 +404,6 @@ func netReceiver(decoder *gob.Decoder, file *os.File, netInStream chan<- DataInt
 	}
 
 	log.Debug("Server.netReceiver done, sync")
-	file.Sync() //TODO: switch to O_DIRECT and compare performance
 	close(netInStream)
 	fileWrittenStreamDone <- status
 }

@@ -4,6 +4,7 @@ import (
 	"os"
 	"syscall"
 
+	fio "github.com/rancher/sparse-tools/directfio"
 	"github.com/rancher/sparse-tools/log"
 )
 
@@ -30,13 +31,13 @@ func FoldFile(childFileName, parentFileName string) error {
 	}
 
 	// open child and parent files
-	childFile, err := os.Open(childFileName)
+	childFile, err := fio.OpenFile(childFileName, os.O_RDONLY, 0)
 	if err != nil {
 		panic("Failed to open childFile, error: " + err.Error())
 	}
 	defer childFile.Close()
 
-	parentFile, err := os.OpenFile(parentFileName, os.O_RDWR, 0)
+	parentFile, err := fio.OpenFile(parentFileName, os.O_WRONLY, 0)
 	if err != nil {
 		panic("Failed to open parentFile, error: " + err.Error())
 	}
@@ -79,21 +80,20 @@ func coalesce(parentFile *os.File, childFile *os.File) error {
 		}
 
 		offset := data
-		buffer := make([]byte, blockSize)
+		buffer := fio.AllocateAligned(blockSize)
 		for offset != hole {
 			// read a block from child, maybe use bufio or Reader stream
-			n, err := childFile.ReadAt(buffer, offset)
+			n, err := fio.ReadAt(childFile, buffer, offset)
 			if n != len(buffer) || err != nil {
 				log.Fatal("Failed to read from childFile")
 				return err
 			}
 			// write a block to parent
-			n, err = parentFile.WriteAt(buffer, offset)
+			n, err = fio.WriteAt(parentFile, buffer, offset)
 			if n != len(buffer) || err != nil {
 				log.Fatal("Failed to write to parentFile")
 				return err
 			}
-			parentFile.Sync()
 			offset += int64(n)
 		}
 	}
@@ -102,8 +102,8 @@ func coalesce(parentFile *os.File, childFile *os.File) error {
 }
 
 // get the file system block size
-func getFileSystemBlockSize(f *os.File) (int64, error) {
+func getFileSystemBlockSize(f *os.File) (int, error) {
 	var stat syscall.Stat_t
 	err := syscall.Stat(f.Name(), &stat)
-	return stat.Blksize, err
+	return int(stat.Blksize), err
 }

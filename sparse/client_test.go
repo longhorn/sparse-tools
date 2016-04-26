@@ -135,6 +135,31 @@ func TestSyncFile9(t *testing.T) {
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
+func TestSyncDiff1(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+        
+    }
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff2(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 100 * Blocks}},        
+    }
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
 func TestSyncHash1(t *testing.T) {
 	var hash1, hash2 []byte
 	{

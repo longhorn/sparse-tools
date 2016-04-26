@@ -2,6 +2,7 @@ package directfio
 
 import (
 	"os"
+	"syscall"
 	"unsafe"
 )
 
@@ -13,7 +14,15 @@ const (
 	BlockSize = alignment
 )
 
+// OpenFile open file for direct i/o (syscall.O_DIRECT)
+// Use AllocateAligned to avoid extra data fuffer copy
+func OpenFile(name string, flag int, perm os.FileMode) (*os.File, error) {
+
+	return os.OpenFile(name, syscall.O_DIRECT|flag, perm)
+}
+
 // ReadAt read into unaligned data buffer via direct I/O
+// Use AllocateAligned to avoid extra data fuffer copy
 func ReadAt(file *os.File, data []byte, offset int64) (int, error) {
 	if alignmentShift(data) == 0 {
 		return file.ReadAt(data, offset)
@@ -25,6 +34,7 @@ func ReadAt(file *os.File, data []byte, offset int64) (int, error) {
 }
 
 // WriteAt write from unaligned data buffer via direct I/O
+// Use AllocateAligned to avoid extra data fuffer copy
 func WriteAt(file *os.File, data []byte, offset int64) (int, error) {
 	if alignmentShift(data) == 0 {
 		return file.WriteAt(data, offset)

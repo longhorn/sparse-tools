@@ -32,10 +32,10 @@ Examples:
 	if len(args) < 2 {
 		cmdError("missing destination file path")
 	}
-    if len(args) > 2 {
+	if len(args) > 2 {
 		cmdError("too many arguments")
 	}
-    
+
 	srcPath := args[0]
 	dstPath := args[1]
 	if *verbose {
@@ -45,7 +45,7 @@ Examples:
 		defer log.LevelPop()
 	}
 
-	err := openAndCoaleasce(srcPath, dstPath)
+	err := FoldFile(srcPath, dstPath)
 	if err != nil {
 		os.Exit(1)
 	}
@@ -58,11 +58,11 @@ func cmdError(msg string) {
 }
 
 const (
-	SEEK_DATA = 3 // seek to the next data
-	SEEK_HOLE = 4 // seek to the next hole
+	SeekData = 3 // seek to the next data
+	SeekHole = 4 // seek to the next hole
 )
 
-func openAndCoaleasce(childFileName, parentFileName string) error {
+func FoldFile(childFileName, parentFileName string) error {
 
 	childFInfo, err := os.Stat(childFileName)
 	if err != nil {
@@ -106,7 +106,7 @@ func coalesce(parentFile *os.File, childFile *os.File) error {
 	}
 	var data, hole int64
 	for {
-		data, err = syscall.Seek(int(childFile.Fd()), hole, SEEK_DATA)
+		data, err = syscall.Seek(int(childFile.Fd()), hole, SeekData)
 		if err != nil {
 			// reaches EOF
 			errno := err.(syscall.Errno)
@@ -118,7 +118,7 @@ func coalesce(parentFile *os.File, childFile *os.File) error {
 				return err
 			}
 		}
-		hole, err = syscall.Seek(int(childFile.Fd()), data, SEEK_HOLE)
+		hole, err = syscall.Seek(int(childFile.Fd()), data, SeekHole)
 		if err != nil {
 			log.Fatal("Failed to syscall.Seek SEEK_HOLE")
 			return err

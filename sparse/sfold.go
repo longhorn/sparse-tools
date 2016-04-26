@@ -46,7 +46,7 @@ func FoldFile(childFileName, parentFileName string) error {
 }
 
 func coalesce(parentFile *os.File, childFile *os.File) error {
-	blockSize, err := getFileSystemBlockSize()
+	blockSize, err := getFileSystemBlockSize(childFile)
 	if err != nil {
 		panic("can't get FS block size, error: " + err.Error())
 	}
@@ -102,8 +102,8 @@ func coalesce(parentFile *os.File, childFile *os.File) error {
 }
 
 // get the file system block size
-func getFileSystemBlockSize() (int64, error) {
+func getFileSystemBlockSize(f *os.File) (int64, error) {
 	var stat syscall.Stat_t
-	err := syscall.Stat(os.DevNull, &stat)
+	err := syscall.Stat(f.Name(), &stat)
 	return stat.Blksize, err
 }

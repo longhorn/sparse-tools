@@ -21,16 +21,16 @@ const (
 var logLevel = LevelDebug
 var logLevelStack []Level
 
-// LevelPush push current level down the stack and set  
-func LevelPush( level Level) {
-    logLevelStack = append(logLevelStack, level)
-    logLevel = level
+// LevelPush push current level down the stack and set
+func LevelPush(level Level) {
+	logLevelStack = append(logLevelStack, level)
+	logLevel = level
 }
 
-// LevelPop pop current level from the stack   
+// LevelPop pop current level from the stack
 func LevelPop() {
-    len := len(logLevelStack)
-    logLevel, logLevelStack = logLevelStack[len-1], logLevelStack[:len-1]  
+	len := len(logLevelStack)
+	logLevel, logLevelStack = logLevelStack[len-1], logLevelStack[:len-1]
 }
 
 // Debug log if debug is greater than current log level

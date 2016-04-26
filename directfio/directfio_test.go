@@ -79,8 +79,8 @@ func TestDirectFileIO1(t *testing.T) {
 	if !bytes.Equal(data1, data2) {
 		t.Fatal("Read not the same as written")
 	}
-    
-    cleanup(path)
+
+	cleanup(path)
 }
 
 func TestDirectFileIO2(t *testing.T) {
@@ -124,8 +124,8 @@ func TestDirectFileIO2(t *testing.T) {
 	if !bytes.Equal(data1, data2) {
 		t.Fatal("Read not the same as written")
 	}
-    
-    cleanup(path)
+
+	cleanup(path)
 }
 
 const fileSize = int64(512) /*MB*/ << 20
@@ -202,8 +202,8 @@ func BenchmarkWrite8(b *testing.B) {
 			writeTest(b, path, writers, batch, write)
 		}
 	}
-    
-    cleanup(path)
+
+	cleanup(path)
 }
 
 func BenchmarkWrite8u(b *testing.B) {
@@ -222,6 +222,6 @@ func BenchmarkWrite8u(b *testing.B) {
 			writeTest(b, path, writers, batch, writeUnaligned)
 		}
 	}
-    
-    cleanup(path)
+
+	cleanup(path)
 }

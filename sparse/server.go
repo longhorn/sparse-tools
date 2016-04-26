@@ -18,7 +18,7 @@ func TestServer(addr TCPEndPoint, timeout int) {
 }
 
 func server(addr TCPEndPoint, serveOnce /*test flag*/ bool, timeout int) {
-    serverConnectionTimeout := time.Duration(timeout) * time.Second
+	serverConnectionTimeout := time.Duration(timeout) * time.Second
 	// listen on all interfaces
 	EndPoint := addr.Host + ":" + strconv.Itoa(int(addr.Port))
 	laddr, err := net.ResolveTCPAddr("tcp", EndPoint)
@@ -42,7 +42,7 @@ func server(addr TCPEndPoint, serveOnce /*test flag*/ bool, timeout int) {
 		if serveOnce {
 			// This is to avoid server listening port conflicts while running tests
 			// exit after single connection request
-            serveConnection(conn)
+			serveConnection(conn)
 			break
 		}
 

@@ -67,7 +67,7 @@ func connect(host, port string, timeout int) net.Conn {
 		log.Fatal("Connection address resolution error:", err)
 	}
 	timeStart := time.Now()
-    timeStop := timeStart.Add(time.Duration(timeout)*time.Second)
+	timeStop := timeStart.Add(time.Duration(timeout) * time.Second)
 	for timeNow := timeStart; timeNow.Before(timeStop); timeNow = time.Now() {
 		conn, err := net.DialTCP("tcp", nil, raddr)
 		if err == nil {

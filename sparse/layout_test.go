@@ -149,6 +149,6 @@ func createTestSparseFile(name string, layout []FileInterval) {
 			log.Fatal(err)
 		}
 	}
-    
-    f.Sync()
+
+	f.Sync()
 }

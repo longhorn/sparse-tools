@@ -1,8 +1,8 @@
 package sparse
 
 import (
-	"syscall"
 	"os"
+	"syscall"
 
 	"github.com/rancher/sparse-tools/log"
 )

@@ -16,7 +16,7 @@ const timeout = 5 //seconds
 var remoteAddr = TCPEndPoint{localhost, 5000}
 
 func TestSyncFile1(t *testing.T) {
-    // D H D => D D H
+	// D H D => D D H
 	layoutLocal := []FileInterval{
 		{SparseData, Interval{0, 1 * Blocks}},
 		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
@@ -31,7 +31,7 @@ func TestSyncFile1(t *testing.T) {
 }
 
 func TestSyncFile2(t *testing.T) {
-    // H D H  => D H H
+	// H D H  => D H H
 	layoutLocal := []FileInterval{
 		{SparseHole, Interval{0, 1 * Blocks}},
 		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
@@ -46,7 +46,7 @@ func TestSyncFile2(t *testing.T) {
 }
 
 func TestSyncFile3(t *testing.T) {
-    // D H D => D D
+	// D H D => D D
 	layoutLocal := []FileInterval{
 		{SparseData, Interval{0, 1 * Blocks}},
 		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
@@ -60,7 +60,7 @@ func TestSyncFile3(t *testing.T) {
 }
 
 func TestSyncFile4(t *testing.T) {
-    // H D H  => D H
+	// H D H  => D H
 	layoutLocal := []FileInterval{
 		{SparseHole, Interval{0, 1 * Blocks}},
 		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
@@ -74,7 +74,7 @@ func TestSyncFile4(t *testing.T) {
 }
 
 func TestSyncFile5(t *testing.T) {
-    // H D H  => H D
+	// H D H  => H D
 	layoutLocal := []FileInterval{
 		{SparseHole, Interval{0, 1 * Blocks}},
 		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
@@ -88,7 +88,7 @@ func TestSyncFile5(t *testing.T) {
 }
 
 func TestSyncFile6(t *testing.T) {
-    // H D H  => D 
+	// H D H  => D
 	layoutLocal := []FileInterval{
 		{SparseHole, Interval{0, 1 * Blocks}},
 		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
@@ -101,7 +101,7 @@ func TestSyncFile6(t *testing.T) {
 }
 
 func TestSyncFile7(t *testing.T) {
-    // H D H  => H 
+	// H D H  => H
 	layoutLocal := []FileInterval{
 		{SparseHole, Interval{0, 1 * Blocks}},
 		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
@@ -114,7 +114,7 @@ func TestSyncFile7(t *testing.T) {
 }
 
 func TestSyncFile8(t *testing.T) {
-    // D H D => 
+	// D H D =>
 	layoutLocal := []FileInterval{
 		{SparseData, Interval{0, 1 * Blocks}},
 		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
@@ -125,7 +125,7 @@ func TestSyncFile8(t *testing.T) {
 }
 
 func TestSyncFile9(t *testing.T) {
-    // H D H  => 
+	// H D H  =>
 	layoutLocal := []FileInterval{
 		{SparseHole, Interval{0, 1 * Blocks}},
 		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
@@ -136,23 +136,23 @@ func TestSyncFile9(t *testing.T) {
 }
 
 func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) {
-    // Only log errors
+	// Only log errors
 	log.LevelPush(log.LevelError)
 	defer log.LevelPop()
-    
-    // Create test files
+
+	// Create test files
 	filesCleanup()
 	createTestSparseFile(localPath, layoutLocal)
 	if len(layoutRemote) > 0 {
-        // only create destination test file if layout is speciifed
+		// only create destination test file if layout is speciifed
 		createTestSparseFile(remotePath, layoutRemote)
 	}
 
-    // Sync
+	// Sync
 	go TestServer(remoteAddr, timeout)
 	err := SyncFile(localPath, remoteAddr, remotePath, timeout)
 
-    // Verify
+	// Verify
 	if err != nil {
 		t.Fatal("sync error")
 	}

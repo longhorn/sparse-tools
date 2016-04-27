@@ -220,21 +220,28 @@ func processDiff(abortStream chan<- error, errStream <-chan error, encoder *gob.
 		}
 		if lrange.Begin == rrange.Begin {
 			if lrange.End > rrange.End {
-				unprocessed := lrange.End
-				lrange.End = rrange.End
-				if verboseClient {
-					logData("LHASH", lrange.Data[:lrange.Len()])
+				data := lrange.Data
+				if len(data) > 0 {
+					data = lrange.Data[:rrange.Len()]
 				}
-				hashFileData(fileHasher, lrange.Len(), lrange.Data[:lrange.Len()])
-				processFileInterval(lrange, rrange, netStream)
+				subrange := HashedDataInterval{HashedInterval{FileInterval{lrange.Kind, rrange.Interval}, lrange.Hash}, data}
+				if verboseClient {
+					logData("LHASH", subrange.Data)
+				}
+
+				hashFileData(fileHasher, subrange.Len(), subrange.Data)
+				processFileInterval(subrange, rrange, netStream)
+				if len(data) > 0 {
+					lrange.Data = lrange.Data[subrange.Len():]
+				}
 				lrange.Begin = rrange.End
-				lrange.End = unprocessed
 				rrange = <-remote
 				continue
 			} else if lrange.End < rrange.End {
 				if verboseClient {
 					logData("LHASH", lrange.Data)
 				}
+
 				hashFileData(fileHasher, lrange.Len(), lrange.Data)
 				processFileInterval(lrange, HashedInterval{FileInterval{rrange.Kind, lrange.Interval}, make([]byte, 0)}, netStream)
 				rrange.Begin = lrange.End
@@ -325,14 +332,14 @@ func isHashDifferent(a, b []byte) bool {
 }
 
 func processFileInterval(local HashedDataInterval, remote HashedInterval, netStream chan<- diffChunk) {
-    if local.Interval != remote.Interval {
-        log.Fatal("Sync.processFileInterval internal error:", local.FileInterval, remote.FileInterval)        
-    }
+	if local.Interval != remote.Interval {
+		log.Fatal("Sync.processFileInterval range internal error:", local.FileInterval, remote.FileInterval)
+	}
 	if local.Kind != remote.Kind {
 		// Different intreval types, send the diff
-        if int64(len(local.Data)) != local.FileInterval.Len() {
-            log.Fatal("Sync.processFileInterval internal error:", local.FileInterval.Len(), len(local.Data))
-        }
+		if local.Kind == SparseData && int64(len(local.Data)) != local.FileInterval.Len() {
+			log.Fatal("Sync.processFileInterval data internal error:", local.FileInterval.Len(), len(local.Data))
+		}
 		netStream <- diffChunk{true, DataInterval{local.FileInterval, local.Data}}
 		return
 	}
@@ -345,11 +352,14 @@ func processFileInterval(local HashedDataInterval, remote HashedInterval, netStr
 		return
 	}
 
+	if local.Kind != SparseData {
+		log.Fatal("Sync.processFileInterval kind internal error:", local.FileInterval)
+	}
 	// Data file interval
 	if isHashDifferent(local.Hash, remote.Hash) {
-        if int64(len(local.Data)) != local.FileInterval.Len() {
-            log.Fatal("Sync.processFileInterval internal error:", local.FileInterval.Len(), len(local.Data))
-        }
+		if int64(len(local.Data)) != local.FileInterval.Len() {
+			log.Fatal("Sync.processFileInterval internal error:", local.FileInterval.Len(), len(local.Data))
+		}
 		netStream <- diffChunk{true, DataInterval{local.FileInterval, local.Data}}
 		return
 	}
@@ -418,9 +428,9 @@ func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus c
 		if verboseClient {
 			log.Debug("Client.networkSender sending data")
 		}
-        if int64(len(chunk.header.Data)) != chunk.header.FileInterval.Len() {
-			log.Fatal("Client.networkSender sending data internal error:", chunk.header.FileInterval.Len(), len(chunk.header.Data))            
-        }
+		if int64(len(chunk.header.Data)) != chunk.header.FileInterval.Len() {
+			log.Fatal("Client.networkSender sending data internal error:", chunk.header.FileInterval.Len(), len(chunk.header.Data))
+		}
 		err = encoder.Encode(chunk.header.Data)
 		if err != nil {
 			log.Fatal("Client protocol encoder error:", err)

@@ -327,50 +327,64 @@ func Validator(checksumStream, netInStream <-chan DataInterval, resultStream cha
 	//TODO: error handling
 	fileHasher.Write(HashSalt)
 	r := <-checksumStream // original dst file data
-	for q := range netInStream {
+	q := <-netInStream    // diff data
+	for q.Len() != 0 || r.Len() != 0 {
 		if r.Len() == 0 /*end of dst file*/ {
 			// Hash diff data
 			if verboseServer {
 				logData("RHASH", q.Data)
 			}
 			hashFileData(fileHasher, q.Len(), q.Data)
+			q = <-netInStream
+		} else if q.Len() == 0 /*end of diff file*/ {
+			// Hash original data
+			if verboseServer {
+				logData("RHASH", r.Data)
+			}
+			hashFileData(fileHasher, r.Len(), r.Data)
+			r = <-checksumStream
 		} else {
 			qi := q.Interval
 			ri := r.Interval
-			if qi == ri {
-				if q.Kind == SparseIgnore {
-					// Hash original data
-					if verboseServer {
-						log.Debug("Server.Validator: hashing original", r.FileInterval)
-					}
-					if verboseServer {
-						logData("RHASH", r.Data)
-					}
-					hashFileData(fileHasher, r.Len(), r.Data)
-				} else {
-					// Hash diff data
-					if verboseServer {
-						log.Debug("Server.Validator: hashing diff", q.FileInterval)
-					}
-					if verboseServer {
-						logData("RHASH", q.Data)
-					}
-					hashFileData(fileHasher, q.Len(), q.Data)
-				}
-				r = <-checksumStream // original dst file data
-			} else {
-				if qi.Len() < ri.Len() {
-					// Hash diff data
-					if verboseServer {
-						log.Debug("Server.Validator: hashing diff", q.FileInterval)
-					}
-					if verboseServer {
-						logData("RHASH", q.Data)
-					}
-					hashFileData(fileHasher, q.Len(), q.Data)
-				} else {
+			if qi.Begin == ri.Begin {
+				if qi.End > ri.End {
 					log.Fatal("Server.Validator internal error, diff=", q.FileInterval, "local=", r.FileInterval)
+				} else if qi.End < ri.End {
+					// Hash diff data
+					if verboseServer {
+						log.Debug("Server.Validator: hashing diff", q.FileInterval, r.FileInterval)
+					}
+					if verboseServer {
+						logData("RHASH", q.Data)
+					}
+					hashFileData(fileHasher, q.Len(), q.Data)
+                    r.Begin = q.End
+					q = <-netInStream
+				} else {
+					if q.Kind == SparseIgnore {
+						// Hash original data
+						if verboseServer {
+							log.Debug("Server.Validator: hashing original", r.FileInterval)
+						}
+						if verboseServer {
+							logData("RHASH", r.Data)
+						}
+						hashFileData(fileHasher, r.Len(), r.Data)
+					} else {
+						// Hash diff data
+						if verboseServer {
+							log.Debug("Server.Validator: hashing diff", q.FileInterval)
+						}
+						if verboseServer {
+							logData("RHASH", q.Data)
+						}
+						hashFileData(fileHasher, q.Len(), q.Data)
+					}
+					q = <-netInStream
+					r = <-checksumStream
 				}
+			} else {
+				log.Fatal("Server.Validator internal error, diff=", q.FileInterval, "local=", r.FileInterval)
 			}
 		}
 	}

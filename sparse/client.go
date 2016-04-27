@@ -109,24 +109,24 @@ func connect(host, port string, timeout int) net.Conn {
 func sendSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, size int64) bool {
 	err := encoder.Encode(requestHeader{requestMagic, syncRequestCode})
 	if err != nil {
-		log.Error("Client protocol encoder error:", err)
+		log.Fatal("Client protocol encoder error:", err)
 		return false
 	}
 	err = encoder.Encode(path)
 	if err != nil {
-		log.Error("Client protocol encoder error:", err)
+		log.Fatal("Client protocol encoder error:", err)
 		return false
 	}
 	err = encoder.Encode(size)
 	if err != nil {
-		log.Error("Client protocol encoder error:", err)
+		log.Fatal("Client protocol encoder error:", err)
 		return false
 	}
 
 	var ack bool
 	err = decoder.Decode(&ack)
 	if err != nil {
-		log.Error("Client protocol decoder error:", err)
+		log.Fatal("Client protocol decoder error:", err)
 		return false
 	}
 
@@ -325,13 +325,19 @@ func isHashDifferent(a, b []byte) bool {
 }
 
 func processFileInterval(local HashedDataInterval, remote HashedInterval, netStream chan<- diffChunk) {
+    if local.Interval != remote.Interval {
+        log.Fatal("Sync.processFileInterval internal error:", local.FileInterval, remote.FileInterval)        
+    }
 	if local.Kind != remote.Kind {
 		// Different intreval types, send the diff
+        if int64(len(local.Data)) != local.FileInterval.Len() {
+            log.Fatal("Sync.processFileInterval internal error:", local.FileInterval.Len(), len(local.Data))
+        }
 		netStream <- diffChunk{true, DataInterval{local.FileInterval, local.Data}}
 		return
 	}
 
-	// The intervals types are the same
+	// The interval types are the same
 	if SparseHole == local.Kind {
 		// Process hole, no syncronization is required
 		local.Kind = SparseIgnore
@@ -341,6 +347,9 @@ func processFileInterval(local HashedDataInterval, remote HashedInterval, netStr
 
 	// Data file interval
 	if isHashDifferent(local.Hash, remote.Hash) {
+        if int64(len(local.Data)) != local.FileInterval.Len() {
+            log.Fatal("Sync.processFileInterval internal error:", local.FileInterval.Len(), len(local.Data))
+        }
 		netStream <- diffChunk{true, DataInterval{local.FileInterval, local.Data}}
 		return
 	}
@@ -373,7 +382,7 @@ func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus c
 			}
 			err := encoder.Encode(chunk.header.FileInterval)
 			if err != nil {
-				log.Error("Client protocol encoder error:", err)
+				log.Fatal("Client protocol encoder error:", err)
 				status = false
 			}
 			break
@@ -399,7 +408,7 @@ func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus c
 		}
 		err := encoder.Encode(chunk.header.FileInterval)
 		if err != nil {
-			log.Error("Client protocol encoder error:", err)
+			log.Fatal("Client protocol encoder error:", err)
 			status = false
 			continue
 		}
@@ -409,9 +418,12 @@ func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus c
 		if verboseClient {
 			log.Debug("Client.networkSender sending data")
 		}
+        if int64(len(chunk.header.Data)) != chunk.header.FileInterval.Len() {
+			log.Fatal("Client.networkSender sending data internal error:", chunk.header.FileInterval.Len(), len(chunk.header.Data))            
+        }
 		err = encoder.Encode(chunk.header.Data)
 		if err != nil {
-			log.Error("Client protocol encoder error:", err)
+			log.Fatal("Client protocol encoder error:", err)
 			status = false
 			continue
 		}

@@ -79,7 +79,7 @@ func serveConnection(conn net.Conn) {
 	var request requestHeader
 	err := decoder.Decode(&request)
 	if err != nil {
-		log.Error("Protocol decoder error:", err)
+		log.Fatal("Protocol decoder error:", err)
 		return
 	}
 	if requestMagic != request.Magic {
@@ -92,13 +92,13 @@ func serveConnection(conn net.Conn) {
 		var path string
 		err := decoder.Decode(&path)
 		if err != nil {
-			log.Error("Protocol decoder error:", err)
+			log.Fatal("Protocol decoder error:", err)
 			return
 		}
 		var size int64
 		err = decoder.Decode(&size)
 		if err != nil {
-			log.Error("Protocol decoder error:", err)
+			log.Fatal("Protocol decoder error:", err)
 			return
 		}
 		encoder := gob.NewEncoder(conn)
@@ -184,13 +184,13 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	log.Info("Sync sending server status=", status)
 	err = encoder.Encode(status)
 	if err != nil {
-		log.Error("Protocol encoder error:", err)
+		log.Fatal("Protocol encoder error:", err)
 		return
 	}
 	// reply with local hash
 	err = encoder.Encode(hash)
 	if err != nil {
-		log.Error("Protocol encoder error:", err)
+		log.Fatal("Protocol encoder error:", err)
 		return
 	}
 }
@@ -212,7 +212,7 @@ func netSender(netOutStream <-chan HashedInterval, encoder *gob.Encoder, netOutD
 		}
 		err := encoder.Encode(r)
 		if err != nil {
-			log.Error("Protocol encoder error:", err)
+			log.Fatal("Protocol encoder error:", err)
 			netOutDoneStream <- false
 			return
 		}
@@ -225,7 +225,7 @@ func netSender(netOutStream <-chan HashedInterval, encoder *gob.Encoder, netOutD
 	// err := encoder.Encode(HashedInterval{FileInterval{}, make([]byte, 0)})
 	err := encoder.Encode(rEOF)
 	if err != nil {
-		log.Error("Protocol encoder error:", err)
+		log.Fatal("Protocol encoder error:", err)
 		netOutDoneStream <- false
 		return
 	}
@@ -242,7 +242,7 @@ func netReceiver(decoder *gob.Decoder, file *os.File, netInStream chan<- DataInt
 		var delta FileInterval
 		err := decoder.Decode(&delta)
 		if err != nil {
-			log.Error("Protocol decoder error:", err)
+			log.Fatal("Protocol decoder error:", err)
 			status = false
 			break
 		}
@@ -257,12 +257,12 @@ func netReceiver(decoder *gob.Decoder, file *os.File, netInStream chan<- DataInt
 			var data []byte
 			err = decoder.Decode(&data)
 			if err != nil {
-				log.Error("Protocol data decoder error:", err)
+				log.Fatal("Protocol data decoder error:", err)
 				status = false
 				break
 			}
 			if int64(len(data)) != delta.Len() {
-				log.Error("Failed to receive data")
+				log.Fatal("Failed to receive data, expected=", delta.Len(), "received=", len(data))
 				status = false
 				break
 			}
@@ -369,7 +369,7 @@ func Validator(checksumStream, netInStream <-chan DataInterval, resultStream cha
 					}
 					hashFileData(fileHasher, q.Len(), q.Data)
 				} else {
-					log.Fatal("Server.Validator internal error")
+					log.Fatal("Server.Validator internal error, diff=", q.FileInterval, "local=", r.FileInterval)
 				}
 			}
 		}

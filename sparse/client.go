@@ -56,16 +56,22 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 		return
 	}
 
-	localLayout, err := getLocalFileLayout(file)
+	abortStream := make(chan error)
+	layoutStream := make(chan FileInterval, 128)
+	errStream := make(chan error)
+
+	// Initiate interval loading...
+	err = loadFileLayout(abortStream, file, layoutStream, errStream)
 	if err != nil {
 		log.Error("Failed to retrieve local file layout:", err)
 		return
 	}
-	splitterStream := make(chan FileInterval, 128)
+
 	fileStream := make(chan FileInterval, 128)
 	unorderedStream := make(chan HashedDataInterval, 128)
 	orderedStream := make(chan HashedDataInterval, 128)
-	go IntervalSplitter(splitterStream, fileStream)
+
+	go IntervalSplitter(layoutStream, fileStream)
 	go FileReader(fileStream, file, unorderedStream)
 	go OrderIntervals(unorderedStream, orderedStream)
 
@@ -74,12 +80,7 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	netInStreamDone := make(chan bool)
 	go netDstReceiver(decoder, netInStream, netInStreamDone)
 
-	for _, interval := range localLayout {
-		splitterStream <- interval
-	}
-	close(splitterStream)
-
-	return processDiff(encoder, decoder, orderedStream, netInStream, netInStreamDone, file)
+	return processDiff(abortStream, errStream, encoder, decoder, orderedStream, netInStream, netInStreamDone, file)
 }
 
 func connect(host, port string, timeout int) net.Conn {
@@ -132,15 +133,6 @@ func sendSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, si
 	return ack
 }
 
-func getLocalFileLayout(file *os.File) ([]FileInterval, error) {
-	size, err := file.Seek(0, os.SEEK_END)
-	if err != nil {
-		log.Fatal("cannot retrieve local source file size", err)
-		return nil, err
-	}
-	return RetrieveLayout(file, Interval{0, size})
-}
-
 // Get remote hashed intervals
 func netDstReceiver(decoder *gob.Decoder, netInStream chan<- HashedInterval, netInStreamDone chan<- bool) {
 	var r HashedInterval
@@ -188,7 +180,7 @@ type diffChunk struct {
 	header DataInterval
 }
 
-func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local <-chan HashedDataInterval, remote <-chan HashedInterval, netInStreamDone <-chan bool, file *os.File) (hashLocal []byte, err error) {
+func processDiff(abortStream chan<- error, errStream <-chan error, encoder *gob.Encoder, decoder *gob.Decoder, local <-chan HashedDataInterval, remote <-chan HashedInterval, netInStreamDone <-chan bool, file *os.File) (hashLocal []byte, err error) {
 	// Local:   __ _*
 	// Remote:  *_ **
 	hashLocal = make([]byte, 0) // empty hash for errors
@@ -271,8 +263,14 @@ func processDiff(encoder *gob.Encoder, decoder *gob.Decoder, local <-chan Hashed
 	// 	<-fileStatus // wait for reader completion
 	// }
 
+	status := true
+	err = <-errStream
+	if err != nil {
+		log.Error("Sync client file load aborted:", err)
+		status = false
+	}
 	// make sure we finished consuming dst hashes
-	status := <-netInStreamDone // netDstReceiver finished
+	status = <-netInStreamDone && status // netDstReceiver finished
 	log.Info("Finished consuming remote file hashes, status=", status)
 
 	// Send end of transmission

@@ -109,7 +109,7 @@ func serveConnection(conn net.Conn) {
 func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, size int64) {
 
 	// Open destination file
-	file, err := fio.OpenFile(path, os.O_RDWR, 0666) 
+	file, err := fio.OpenFile(path, os.O_RDWR, 0666)
 	if err != nil {
 		file, err = os.Create(path)
 		if err != nil {
@@ -127,7 +127,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 		return
 	}
 
-	// load
+	// open file
 	fileRO, err := fio.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
 		log.Error("Failed to open file for reading:", string(path), err)
@@ -135,14 +135,11 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 		return
 	}
 	defer fileRO.Close()
-	layout, err := loadFile(fileRO)
-	if err != nil {
-		encoder.Encode(false) // NACK request
-		return
-	}
-	encoder.Encode(true) // ACK request
 
-	splitterStream := make(chan FileInterval, 128)
+	abortStream := make(chan error)
+	layoutStream := make(chan FileInterval, 128)
+	errStream := make(chan error)
+
 	fileStream := make(chan FileInterval, 128)
 	unorderedStream := make(chan HashedDataInterval, 128)
 	orderedStream := make(chan HashedDataInterval, 128)
@@ -154,30 +151,37 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	checksumStream := make(chan DataInterval, 128)
 	resultStream := make(chan []byte)
 
-	go IntervalSplitter(splitterStream, fileStream)
+	// Initiate interval loading...
+	err = loadFileLayout(abortStream, fileRO, layoutStream, errStream)
+	if err != nil {
+		encoder.Encode(false) // NACK request
+		return
+	}
+	encoder.Encode(true) // ACK request
+
+	go IntervalSplitter(layoutStream, fileStream)
 	go FileReader(fileStream, fileRO, unorderedStream)
 	go OrderIntervals(unorderedStream, orderedStream)
 	go Tee(orderedStream, netOutStream, checksumStream)
-	// Sends layout along with data hashes
+
+	// Send layout along with data hashes
 	go netSender(netOutStream, encoder, netOutDoneStream)
 	go netReceiver(decoder, file, netInStream, fileWrittenStreamDone) // receiver and checker
 	go Validator(checksumStream, netInStream, resultStream)
 
-	for _, interval := range layout {
-		if verboseServer {
-			log.Debug("Server file interval:", interval)
-		}
-		splitterStream <- interval
-	}
-	close(splitterStream)
-
 	// Block till completion
-	status := <-netOutDoneStream               // done sending dst hashes
+	status := true
+	err = <-errStream // Done with file loadaing, possibly aborted on error
+	if err != nil {
+		log.Error("Sync server file load aborted:", err)
+		status = false
+	}
+	status = <-netOutDoneStream && status      // done sending dst hashes
 	status = <-fileWrittenStreamDone && status // done writing dst file
 	hash := <-resultStream                     // done processing diffs
 
 	// reply to client with status
-	log.Info("Sync server remote status=", status)
+	log.Info("Sync sending server status=", status)
 	err = encoder.Encode(status)
 	if err != nil {
 		log.Error("Protocol encoder error:", err)
@@ -189,119 +193,6 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 		log.Error("Protocol encoder error:", err)
 		return
 	}
-}
-
-func loadFile(file *os.File) ([]FileInterval, error) {
-	size, err := file.Seek(0, os.SEEK_END)
-	if err != nil {
-		return make([]FileInterval, 0), err
-	}
-
-	return RetrieveLayout(file, Interval{0, size})
-}
-
-// IntervalSplitter limits file intervals to predefined batch size
-func IntervalSplitter(spltterStream <-chan FileInterval, fileStream chan<- FileInterval) {
-	const batch = 32 * Blocks
-	for r := range spltterStream {
-		switch r.Kind {
-		case SparseHole:
-			// Process hole
-			fileStream <- r
-		case SparseData:
-			// Process data in chunks
-			for offset := r.Begin; offset < r.End; {
-				size := batch
-				if offset+size > r.End {
-					size = r.End - offset
-				}
-				fileStream <- FileInterval{SparseData, Interval{offset, offset + size}}
-				offset += size
-			}
-		}
-	}
-	close(fileStream)
-}
-
-// HashedInterval FileInterval plus its data hash (to be sent to the client)
-type HashedInterval struct {
-	FileInterval
-	Hash []byte
-}
-
-// HashedDataInterval FileInterval plus its hash and data
-type HashedDataInterval struct {
-	HashedInterval
-	Data []byte
-}
-
-// DataInterval FileInterval plus its data
-type DataInterval struct {
-	FileInterval
-	Data []byte
-}
-
-// HashSalt is common client/server hash salt
-var HashSalt = []byte("TODO: randomize and exchange between client/server")
-
-// FileReader supports concurrent file reading
-func FileReader(fileStream <-chan FileInterval, file *os.File, unorderedStream chan<- HashedDataInterval) {
-	for r := range fileStream {
-		switch r.Kind {
-		case SparseHole:
-			// Process hole
-			// hash := sha1.New()
-			// binary.PutVariant(data, r.Len)
-			// fileHash.Write(data)
-			var hash, data []byte
-			unorderedStream <- HashedDataInterval{HashedInterval{r, hash}, data}
-
-		case SparseData:
-			// Read file data
-			data := make([]byte, r.Len())
-			status := true
-			n, err := fio.ReadAt(file, data, r.Begin)
-			if err != nil {
-				status = false
-				log.Error("File read error", status)
-			} else if int64(n) != r.Len() {
-				status = false
-				log.Error("File read underrun")
-			}
-			hasher := sha1.New()
-			hasher.Write(HashSalt)
-			hasher.Write(data)
-			hash := hasher.Sum(nil)
-			unorderedStream <- HashedDataInterval{HashedInterval{r, hash}, data}
-		}
-	}
-	close(unorderedStream)
-}
-
-// OrderIntervals puts back "out of order" read results
-func OrderIntervals(unorderedStream <-chan HashedDataInterval, orderedStream chan<- HashedDataInterval) {
-	pos := int64(0)
-	var m map[int64]HashedDataInterval // out of order completions
-	for r := range unorderedStream {
-		// Handle "in order" range
-		if pos == r.Begin {
-			orderedStream <- r
-			pos = r.End
-			continue
-		}
-
-		// push "out of order"" range
-		m[r.Begin] = r
-
-		// check the "out of order" stash for "in order"
-		for pop, existsNext := m[pos]; existsNext; {
-			// pop in order range
-			orderedStream <- pop
-			delete(m, pos)
-			pos = pop.End
-		}
-	}
-	close(orderedStream)
 }
 
 // Tee ordered intervals into the network and checksum checker

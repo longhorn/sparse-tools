@@ -20,7 +20,7 @@ type FileIntervalKind int
 const (
 	SparseData FileIntervalKind = 1 + iota
 	SparseHole
-    SparseIgnore // ignore file interval (equal src vs dst part)
+	SparseIgnore // ignore file interval (equal src vs dst part)
 )
 
 // FileInterval describes either sparse data Interval or a hole
@@ -59,9 +59,11 @@ const (
 	fallocFlPunchHole uint32 = 2
 )
 
-// RetrieveLayout retrieves sparse file hole and data layout
-func RetrieveLayout(file *os.File, r Interval) ([]FileInterval, error) {
-	layout := make([]FileInterval, 0, 128)
+// RetrieveLayoutStream streams sparse file data/hole layout
+// To abort: abortStream <- error
+// Check status: err := <- errStream
+// Usage: go RetrieveLayoutStream(...)
+func RetrieveLayoutStream(abortStream <-chan error, file *os.File, r Interval, layoutStream chan<- FileInterval, errStream chan<- error) {
 	curr := r.Begin
 
 	// Data or hole?
@@ -72,16 +74,20 @@ func RetrieveLayout(file *os.File, r Interval) ([]FileInterval, error) {
 		// Hole only
 		interval = FileInterval{SparseHole, Interval{curr, r.End}}
 		if interval.Len() > 0 {
-			layout = append(layout, interval)
+			layoutStream <- interval
 		}
-		return layout, nil
+		close(layoutStream)
+		errStream <- nil
+		return 
 	} else if errHole != nil {
 		// Data only
 		interval = FileInterval{SparseData, Interval{curr, r.End}}
 		if interval.Len() > 0 {
-			layout = append(layout, interval)
+			layoutStream <- interval
 		}
-		return layout, nil
+		close(layoutStream)
+		errStream <- nil
+		return 
 	}
 
 	if offsetData < offsetHole {
@@ -92,10 +98,19 @@ func RetrieveLayout(file *os.File, r Interval) ([]FileInterval, error) {
 		curr = offsetData
 	}
 	if interval.Len() > 0 {
-		layout = append(layout, interval)
+		layoutStream <- interval
 	}
 
 	for curr < r.End {
+		// Check abort condition
+		select {
+		case err := <-abortStream:
+			close(layoutStream)
+			errStream <- err
+			return
+		default:
+		}
+
 		var whence int
 		if SparseData == interval.Kind {
 			whence = seekData
@@ -112,7 +127,9 @@ func RetrieveLayout(file *os.File, r Interval) ([]FileInterval, error) {
 				next = r.End // close the last interval
 			default:
 				// mimic standard "os"" package error handler
-				return nil, &os.PathError{Op: "seek", Path: file.Name(), Err: errno}
+				close(layoutStream)
+				errStream <- &os.PathError{Op: "seek", Path: file.Name(), Err: errno}
+				return
 			}
 		}
 		if SparseData == interval.Kind {
@@ -124,10 +141,26 @@ func RetrieveLayout(file *os.File, r Interval) ([]FileInterval, error) {
 		}
 		curr = next
 		if interval.Len() > 0 {
-			layout = append(layout, interval)
+			layoutStream <- interval
 		}
 	}
-	return layout, nil
+	close(layoutStream)
+	errStream <- nil
+	return
+}
+
+// RetrieveLayout retrieves sparse file hole and data layout
+func RetrieveLayout(file *os.File, r Interval) ([]FileInterval, error) {
+	layout := make([]FileInterval, 0, 1024)
+	abortStream := make(chan error)
+    layoutStream := make(chan FileInterval, 128)
+	errStream := make(chan error)
+
+	go RetrieveLayoutStream(abortStream, file, r, layoutStream, errStream)
+	for interval := range layoutStream {
+		layout = append(layout, interval)
+	}
+	return layout, <-errStream
 }
 
 // PunchHole in a sparse file, preserve file size

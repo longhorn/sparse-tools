@@ -135,12 +135,12 @@ func sendSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, si
 
 // Get remote hashed intervals
 func netDstReceiver(decoder *gob.Decoder, netInStream chan<- HashedInterval, netInStreamDone chan<- bool) {
-	var r HashedInterval
 	status := true
 	for {
 		if verboseClient {
 			log.Debug("Client.netDstReceiver decoding...")
 		}
+		var r HashedInterval
 		err := decoder.Decode(&r)
 		if err != nil {
 			log.Fatal("Cient protocol error:", err)

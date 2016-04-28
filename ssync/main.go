@@ -68,7 +68,7 @@ Examples:
 			defer log.LevelPop()
 		}
 
-		err, _ := sparse.SyncFile(srcPath, endpoint, dstPath, *timeout)
+		_, err := sparse.SyncFile(srcPath, endpoint, dstPath, *timeout)
 		if err != nil {
             log.Info("ssync: error:", err, "exit code 1")
 			os.Exit(1)

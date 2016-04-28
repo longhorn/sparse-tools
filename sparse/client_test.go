@@ -15,6 +15,26 @@ const timeout = 5 //seconds
 
 var remoteAddr = TCPEndPoint{localhost, 5000}
 
+func TestSyncAnyFile(t *testing.T) {
+	src := "src.bar"
+	dst := "dst.bar"
+	run := false
+
+	if run {
+		// Sync
+		go TestServer(remoteAddr, timeout)
+		_, err := SyncFile(src, remoteAddr, dst, timeout)
+
+		// Verify
+		if err != nil {
+			t.Fatal("sync error")
+		}
+		if !filesAreEqual(localPath, remotePath) {
+			t.Fatal("file content diverged")
+		}
+	}
+}
+
 func TestSyncFile1(t *testing.T) {
 	// D H D => D D H
 	layoutLocal := []FileInterval{
@@ -135,7 +155,359 @@ func TestSyncFile9(t *testing.T) {
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
-func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) {
+func TestSyncDiff1(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff2(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff3(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff4(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff5(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseHole, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff6(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseHole, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff7(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff8(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff9(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseHole, Interval{0, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff10(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseHole, Interval{0, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff11(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseHole, Interval{0, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff12(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseHole, Interval{0, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff13(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseHole, Interval{0, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseHole, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff14(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseHole, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseHole, Interval{0, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff15(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseHole, Interval{0, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff16(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseHole, Interval{0, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff17(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 28 * Blocks}},
+		{SparseHole, Interval{28 * Blocks, 32 * Blocks}},
+		{SparseData, Interval{32 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff18(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 28 * Blocks}},
+		{SparseHole, Interval{28 * Blocks, 36 * Blocks}},
+		{SparseData, Interval{36 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff19(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 31 * Blocks}},
+		{SparseHole, Interval{31 * Blocks, 33 * Blocks}},
+		{SparseData, Interval{33 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff20(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 32 * Blocks}},
+		{SparseHole, Interval{32 * Blocks, 36 * Blocks}},
+		{SparseData, Interval{36 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseData, Interval{0, 30 * Blocks}},
+		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff21(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseHole, Interval{0, 28 * Blocks}},
+		{SparseData, Interval{28 * Blocks, 32 * Blocks}},
+		{SparseHole, Interval{32 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseHole, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff22(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseHole, Interval{0, 28 * Blocks}},
+		{SparseData, Interval{28 * Blocks, 36 * Blocks}},
+		{SparseHole, Interval{36 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseHole, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff23(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseHole, Interval{0, 31 * Blocks}},
+		{SparseData, Interval{31 * Blocks, 33 * Blocks}},
+		{SparseHole, Interval{33 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseHole, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncDiff24(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseHole, Interval{0, 32 * Blocks}},
+		{SparseData, Interval{32 * Blocks, 36 * Blocks}},
+		{SparseHole, Interval{36 * Blocks, 100 * Blocks}},
+	}
+	layoutRemote := []FileInterval{
+		{SparseHole, Interval{0, 30 * Blocks}},
+		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
+		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+	}
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
+func TestSyncHash1(t *testing.T) {
+	var hash1, hash2 []byte
+	{
+		layoutLocal := []FileInterval{
+			{SparseData, Interval{0, 1 * Blocks}},
+			{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+		}
+		layoutRemote := layoutLocal
+		hash1 = testSyncFile(t, layoutLocal, layoutRemote)
+	}
+	{
+
+		layoutLocal := []FileInterval{
+			{SparseData, Interval{0, 1 * Blocks}},
+			{SparseHole, Interval{1 * Blocks, 3 * Blocks}},
+		}
+		layoutRemote := layoutLocal
+		hash2 = testSyncFile(t, layoutLocal, layoutRemote)
+	}
+	if !isHashDifferent(hash1, hash2) {
+		t.Fatal("Files with same data content but different layouts should have unique hashes")
+	}
+}
+
+func TestSyncHash2(t *testing.T) {
+	var hash1, hash2 []byte
+	{
+		layoutLocal := []FileInterval{
+			{SparseData, Interval{0, 1 * Blocks}},
+			{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+		}
+		layoutRemote := []FileInterval{}
+		hash1 = testSyncFile(t, layoutLocal, layoutRemote)
+	}
+	{
+
+		layoutLocal := []FileInterval{
+			{SparseData, Interval{0, 1 * Blocks}},
+			{SparseHole, Interval{1 * Blocks, 3 * Blocks}},
+		}
+		layoutRemote := []FileInterval{}
+		hash2 = testSyncFile(t, layoutLocal, layoutRemote)
+	}
+	if !isHashDifferent(hash1, hash2) {
+		t.Fatal("Files with same data content but different layouts should have unique hashes")
+	}
+}
+
+func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) (hashLocal []byte) {
 	// Only log errors
 	log.LevelPush(log.LevelError)
 	defer log.LevelPop()
@@ -150,7 +522,7 @@ func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) {
 
 	// Sync
 	go TestServer(remoteAddr, timeout)
-	err := SyncFile(localPath, remoteAddr, remotePath, timeout)
+	hashLocal, err := SyncFile(localPath, remoteAddr, remotePath, timeout)
 
 	// Verify
 	if err != nil {
@@ -160,6 +532,7 @@ func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) {
 		t.Fatal("file content diverged")
 	}
 	filesCleanup()
+	return
 }
 
 func Benchmark_1G_InitFiles(b *testing.B) {
@@ -167,21 +540,31 @@ func Benchmark_1G_InitFiles(b *testing.B) {
 	layoutLocal := []FileInterval{
 		{SparseData, Interval{0, (256 << 10) * Blocks}},
 	}
-	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, (256 << 10) * Blocks}},
-	}
+	layoutRemote := []FileInterval{}
 
 	filesCleanup()
 	createTestSparseFile(localPath, layoutLocal)
 	createTestSparseFile(remotePath, layoutRemote)
 }
 
-func Benchmark_1G_SendFiles(b *testing.B) {
+func Benchmark_1G_SendFiles_Whole(b *testing.B) {
 	log.LevelPush(log.LevelInfo)
 	defer log.LevelPop()
 
 	go TestServer(remoteAddr, timeout)
-	err := SyncFile(localPath, remoteAddr, remotePath, timeout)
+	_, err := SyncFile(localPath, remoteAddr, remotePath, timeout)
+
+	if err != nil {
+		b.Fatal("sync error")
+	}
+}
+
+func Benchmark_1G_SendFiles_Diff(b *testing.B) {
+	log.LevelPush(log.LevelInfo)
+	defer log.LevelPop()
+
+	go TestServer(remoteAddr, timeout)
+	_, err := SyncFile(localPath, remoteAddr, remotePath, timeout)
 
 	if err != nil {
 		b.Fatal("sync error")

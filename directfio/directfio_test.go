@@ -93,7 +93,7 @@ func TestDirectFileIO2(t *testing.T) {
 	path := tempFileName()
 	{
 		// Write
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|syscall.O_DIRECT, 0644)
+		f, err := fio.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			t.Fatal("Failed to OpenFile for write", err)
 		}
@@ -108,7 +108,7 @@ func TestDirectFileIO2(t *testing.T) {
 	data2 := make([]byte, blocks*fio.BlockSize)
 	{
 		// Read
-		f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_DIRECT, 0)
+		f, err := fio.OpenFile(path, os.O_RDONLY, 0)
 		if err != nil {
 			t.Fatal("Failed to OpenFile for read", err)
 		}
@@ -130,13 +130,13 @@ func TestDirectFileIO2(t *testing.T) {
 
 const fileSize = int64(512) /*MB*/ << 20
 
-const FileMode = os.O_WRONLY | syscall.O_DIRECT
+const FileMode = os.O_WRONLY
 
 func write(b *testing.B, path string, done chan<- bool, batchSize int, offset, size int64) {
 	data := fio.AllocateAligned(batchSize)
 	fillData(data, 0)
 
-	f, err := os.OpenFile(path, FileMode, 0)
+	f, err := os.OpenFile(path, syscall.O_DIRECT|FileMode, 0)
 	if err != nil {
 		b.Fatal("Failed to OpenFile for write", err)
 	}
@@ -155,7 +155,7 @@ func writeUnaligned(b *testing.B, path string, done chan<- bool, batchSize int, 
 	data := make([]byte, batchSize)
 	fillData(data, 0)
 
-	f, err := os.OpenFile(path, FileMode, 0)
+	f, err := fio.OpenFile(path, FileMode, 0)
 	if err != nil {
 		b.Fatal("Failed to OpenFile for write", err)
 	}

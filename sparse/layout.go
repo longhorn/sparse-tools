@@ -78,7 +78,7 @@ func RetrieveLayoutStream(abortStream <-chan error, file *os.File, r Interval, l
 		}
 		close(layoutStream)
 		errStream <- nil
-		return 
+		return
 	} else if errHole != nil {
 		// Data only
 		interval = FileInterval{SparseData, Interval{curr, r.End}}
@@ -87,7 +87,7 @@ func RetrieveLayoutStream(abortStream <-chan error, file *os.File, r Interval, l
 		}
 		close(layoutStream)
 		errStream <- nil
-		return 
+		return
 	}
 
 	if offsetData < offsetHole {
@@ -153,7 +153,7 @@ func RetrieveLayoutStream(abortStream <-chan error, file *os.File, r Interval, l
 func RetrieveLayout(file *os.File, r Interval) ([]FileInterval, error) {
 	layout := make([]FileInterval, 0, 1024)
 	abortStream := make(chan error)
-    layoutStream := make(chan FileInterval, 128)
+	layoutStream := make(chan FileInterval, 128)
 	errStream := make(chan error)
 
 	go RetrieveLayoutStream(abortStream, file, r, layoutStream, errStream)

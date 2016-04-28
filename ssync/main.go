@@ -70,16 +70,16 @@ Examples:
 
 		_, err := sparse.SyncFile(srcPath, endpoint, dstPath, *timeout)
 		if err != nil {
-            log.Info("ssync: error:", err, "exit code 1")
+			log.Info("ssync: error:", err, "exit code 1")
 			os.Exit(1)
 		}
-        log.Info("ssync: exit code 0")
+		log.Info("ssync: exit code 0")
 	}
 }
 
 func cmdError(msg string) {
 	fmt.Fprintln(os.Stderr, "Error:", msg)
 	flag.Usage()
-    log.Info("ssync: exit code 2")
+	log.Info("ssync: exit code 2")
 	os.Exit(2)
 }

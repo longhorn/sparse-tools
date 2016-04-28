@@ -358,7 +358,7 @@ func Validator(checksumStream, netInStream <-chan DataInterval, resultStream cha
 						logData("RHASH", q.Data)
 					}
 					hashFileData(fileHasher, q.Len(), q.Data)
-                    r.Begin = q.End
+					r.Begin = q.End
 					q = <-netInStream
 				} else {
 					if q.Kind == SparseIgnore {

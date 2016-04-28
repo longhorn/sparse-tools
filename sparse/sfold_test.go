@@ -23,12 +23,12 @@ func TestFoldLayout1(t *testing.T) {
 		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
 		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
 	}
-    
-    layoutResult := foldLayout(layoutFrom, layoutTo)
+
+	layoutResult := foldLayout(layoutFrom, layoutTo)
 	status := checkLayout(layoutResult, layoutModel)
-    if !status {
+	if !status {
 		t.Fatal("Folded layout diverged")
-    }
+	}
 }
 
 func TestFoldLayout2(t *testing.T) {
@@ -48,12 +48,12 @@ func TestFoldLayout2(t *testing.T) {
 		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
 		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
 	}
-    
-    layoutResult := foldLayout(layoutFrom, layoutTo)
+
+	layoutResult := foldLayout(layoutFrom, layoutTo)
 	status := checkLayout(layoutResult, layoutModel)
-    if !status {
+	if !status {
 		t.Fatal("Folded layout diverged")
-    }
+	}
 }
 
 func TestFoldFile1(t *testing.T) {
@@ -106,12 +106,12 @@ func foldLayout(from, to []FileInterval) []FileInterval {
 func checkLayout(from, to []FileInterval) bool {
 	if len(from) != len(to) {
 		log.Error("checkLayout: non equal length:", len(from), len(to))
-        return false
+		return false
 	}
 	for i, interval := range from {
 		if to[i] != interval {
 			log.Error("checkayout: intervals not equal:", interval, to[i])
-            return false
+			return false
 		}
 	}
 	return true

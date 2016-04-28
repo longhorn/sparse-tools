@@ -10,7 +10,8 @@ import (
 )
 
 func main() {
-	defaultNonVerboseLogLevel := log.LevelWarn // set if -verbose is false
+	defaultVerboseLogLevel := log.LevelInfo    // set if -verbose
+	defaultNonVerboseLogLevel := log.LevelWarn // set if -verbose=false
 	// Command line parsing
 	verbose := flag.Bool("verbose", false, "verbose mode")
 	daemon := flag.Bool("daemon", false, "daemon mode (run on remote host)")
@@ -33,8 +34,10 @@ Examples:
 	args := flag.Args()
 	if *daemon {
 		// Daemon mode
-		endpoint := sparse.TCPEndPoint{Host:"" /*bind to all*/, Port:int16(*port)}
+		endpoint := sparse.TCPEndPoint{Host: "" /*bind to all*/, Port: int16(*port)}
 		if *verbose {
+			log.LevelPush(defaultVerboseLogLevel)
+			defer log.LevelPop()
 			fmt.Fprintln(os.Stderr, "Listening on", endpoint, "...")
 		} else {
 			log.LevelPush(defaultNonVerboseLogLevel)
@@ -55,8 +58,10 @@ Examples:
 			cmdError("too many arguments")
 		}
 
-		endpoint := sparse.TCPEndPoint{Host:*host, Port:int16(*port)}
+		endpoint := sparse.TCPEndPoint{Host: *host, Port: int16(*port)}
 		if *verbose {
+			log.LevelPush(defaultVerboseLogLevel)
+			defer log.LevelPop()
 			fmt.Fprintf(os.Stderr, "Syncing %s to %s@%s:%d...\n", srcPath, dstPath, endpoint.Host, endpoint.Port)
 		} else {
 			log.LevelPush(defaultNonVerboseLogLevel)
@@ -65,13 +70,16 @@ Examples:
 
 		err, _ := sparse.SyncFile(srcPath, endpoint, dstPath, *timeout)
 		if err != nil {
+            log.Info("ssync: error:", err, "exit code 1")
 			os.Exit(1)
 		}
+        log.Info("ssync: exit code 0")
 	}
 }
 
 func cmdError(msg string) {
 	fmt.Fprintln(os.Stderr, "Error:", msg)
 	flag.Usage()
+    log.Info("ssync: exit code 2")
 	os.Exit(2)
 }

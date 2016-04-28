@@ -1,7 +1,12 @@
 package sparse
 
-import "os"
-import "syscall"
+import (
+	"os"
+	"syscall"
+
+	"github.com/rancher/go-fibmap"
+	"github.com/rancher/sparse-tools/log"
+)
 
 // Interval [Begin, End) is non-inclusive at the End
 type Interval struct {
@@ -60,10 +65,85 @@ const (
 )
 
 // RetrieveLayoutStream streams sparse file data/hole layout
+// Based on fiemap
 // To abort: abortStream <- error
 // Check status: err := <- errStream
 // Usage: go RetrieveLayoutStream(...)
 func RetrieveLayoutStream(abortStream <-chan error, file *os.File, r Interval, layoutStream chan<- FileInterval, errStream chan<- error) {
+	const extents = 1024
+	const chunkSizeMax = 1 /*GB*/ << 30
+	chunkSize := r.Len()
+	if chunkSize > chunkSizeMax {
+		chunkSize = chunkSizeMax
+	}
+
+	chunk := Interval{r.Begin, r.Begin + chunkSize}
+	// Process file extents for each chunk
+	intervalLast := Interval{chunk.Begin, chunk.Begin}
+	for chunk.Begin < r.End {
+		if chunk.End > r.End {
+			chunk.End = r.End
+		}
+
+		for more := true; more && chunk.Len() > 0; {
+			ext, errno := fibmap.Fiemap(file.Fd(), uint64(chunk.Begin), uint64(chunk.Len()), 1024)
+			if errno != 0 {
+				close(layoutStream)
+				errStream <- &os.PathError{Op: "Fiemap", Path: file.Name(), Err: errno}
+				return
+			}
+			if len(ext) == 0 {
+				break
+			}
+
+			// Process each extents
+			for _, e := range ext {
+				interval := Interval{int64(e.Logical), int64(e.Logical + e.Length)}
+				log.Debug("Extent:", interval, e.Flags)
+				if e.Flags&fibmap.FIEMAP_EXTENT_LAST != 0 {
+					more = false
+				}
+				if intervalLast.End < interval.Begin {
+					if intervalLast.Len() > 0 {
+						// Pop last Data
+						layoutStream <- FileInterval{SparseData, intervalLast}
+					}
+					// report hole
+					intervalLast = Interval{intervalLast.End, interval.Begin}
+					layoutStream <- FileInterval{SparseHole, intervalLast}
+
+					// Start data
+					intervalLast = interval
+				} else {
+					// coalesce
+					intervalLast.End = interval.End
+				}
+				chunk.Begin = interval.End
+			}
+		}
+		chunk = Interval{chunk.End, chunk.End + chunkSizeMax}
+	}
+
+	if intervalLast.Len() > 0 {
+		// Pop last Data
+		layoutStream <- FileInterval{SparseData, intervalLast}
+	}
+	if intervalLast.End < r.End {
+		// report hole
+		layoutStream <- FileInterval{SparseHole, Interval{intervalLast.End, r.End}}
+	}
+
+	close(layoutStream)
+	errStream <- nil
+	return
+}
+
+// RetrieveLayoutStream0 streams sparse file data/hole layout
+// Deprecated; Based on file.seek; use RetrieveLayoutStream instead
+// To abort: abortStream <- error
+// Check status: err := <- errStream
+// Usage: go RetrieveLayoutStream(...)
+func RetrieveLayoutStream0(abortStream <-chan error, file *os.File, r Interval, layoutStream chan<- FileInterval, errStream chan<- error) {
 	curr := r.Begin
 
 	// Data or hole?

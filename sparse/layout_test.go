@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"reflect"
 	"testing"
+
+	"github.com/rancher/sparse-tools/log"
 )
 
 const name = "foo.bar"
@@ -87,6 +88,35 @@ func TestLayout8(t *testing.T) {
 	layoutTest(t, name, layoutModel, layoutExpected)
 }
 
+func TestLayout9(t *testing.T) {
+	layoutModel := []FileInterval{
+		{SparseData, Interval{0, 256 * Blocks}},
+		{SparseHole, Interval{256 * Blocks, (256<<10 - 256) * Blocks}},
+		{SparseData, Interval{(256<<10 - 256) * Blocks, 256 << 10 * Blocks}},
+	}
+	layoutTest(t, name, layoutModel, layoutModel)
+}
+
+func TestLayout10(t *testing.T) {
+	layoutModel := []FileInterval{
+		{SparseHole, Interval{0, (256<<10 - 128) * Blocks}},
+		{SparseData, Interval{(256<<10 - 128) * Blocks, (256<<10 - 8) * Blocks}},
+		{SparseHole, Interval{(256<<10 - 8) * Blocks, (256<<10 + 8) * Blocks}},
+		{SparseData, Interval{(256<<10 + 8) * Blocks, (256<<10 + 128) * Blocks}},
+		{SparseHole, Interval{(256<<10 + 128) * Blocks, (256 << 10 * 2) * Blocks}},
+	}
+	layoutTest(t, name, layoutModel, layoutModel)
+}
+
+func TestLayout11(t *testing.T) {
+	layoutModel := []FileInterval{
+		{SparseHole, Interval{0, (256<<10 - 8) * Blocks}},
+		{SparseData, Interval{(256<<10 - 8) * Blocks, (256<<10 + 8) * Blocks}},
+		{SparseHole, Interval{(256<<10 + 8) * Blocks, (256 << 10 * 2) * Blocks}},
+	}
+	layoutTest(t, name, layoutModel, layoutModel)
+}
+
 func TestPunchHole0(t *testing.T) {
 	layoutModel := []FileInterval{
 		{SparseData, Interval{0, 1 * Blocks}},
@@ -101,6 +131,9 @@ func TestPunchHole0(t *testing.T) {
 }
 
 func layoutTest(t *testing.T, name string, layoutModel, layoutExpected []FileInterval) {
+	log.LevelPush(log.LevelInfo)
+	defer log.LevelPop()
+
 	createTestSparseFile(name, layoutModel)
 
 	f, err := os.Open(name)
@@ -162,6 +195,8 @@ func makeData(interval FileInterval) []byte {
 	return data
 }
 
+const batch = int64(32) // Blocks
+
 func createTestSparseFile(name string, layout []FileInterval) {
 	f, err := os.Create(name)
 	if err != nil {
@@ -176,8 +211,15 @@ func createTestSparseFile(name string, layout []FileInterval) {
 	// Fill up data
 	for _, interval := range layout {
 		if SparseData == interval.Kind {
-			data := makeData(interval)
-			f.WriteAt(data, interval.Begin)
+			size := batch * Blocks
+			for offset := interval.Begin; offset < interval.End; {
+				if offset+size > interval.End {
+					size = interval.End - offset
+				}
+				data := makeData(FileInterval{SparseData, Interval{offset, offset + size}})
+				f.WriteAt(data, offset)
+				offset += size
+			}
 		}
 	}
 
@@ -206,11 +248,19 @@ func checkTestSparseFile(name string, layout []FileInterval) error {
 	// Read and check data
 	for _, interval := range layout {
 		if SparseData == interval.Kind {
-			dataModel := makeData(interval)
-			data := make([]byte, interval.Len())
-			f.ReadAt(data, interval.Begin)
-			if !bytes.Equal(data, dataModel) {
-				return errors.New(fmt.Sprint("data equality check failure at", interval))
+			size := batch * Blocks
+			for offset := interval.Begin; offset < interval.End; {
+				if offset+size > interval.End {
+					size = interval.End - offset
+				}
+				dataModel := makeData(FileInterval{SparseData, Interval{offset, offset + size}})
+				data := make([]byte, size)
+				f.ReadAt(data, offset)
+				offset += size
+
+				if !bytes.Equal(data, dataModel) {
+					return errors.New(fmt.Sprint("data equality check failure at", interval))
+				}
 			}
 		} else if SparseHole == interval.Kind {
 			layoutActual, err := RetrieveLayout(f, interval.Interval)

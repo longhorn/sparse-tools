@@ -161,7 +161,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 
 	go IntervalSplitter(layoutStream, fileStream)
 	go FileReader(fileStream, fileRO, unorderedStream)
-	go OrderIntervals(unorderedStream, orderedStream)
+	go OrderIntervals("dst:", unorderedStream, orderedStream)
 	go Tee(orderedStream, netOutStream, checksumStream)
 
 	// Send layout along with data hashes

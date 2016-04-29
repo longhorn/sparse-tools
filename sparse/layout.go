@@ -6,6 +6,7 @@ import (
 
 	"github.com/rancher/go-fibmap"
 	"github.com/rancher/sparse-tools/log"
+	"fmt"
 )
 
 // Interval [Begin, End) is non-inclusive at the End
@@ -16,6 +17,11 @@ type Interval struct {
 // Len returns length of Interval
 func (interval Interval) Len() int64 {
 	return interval.End - interval.Begin
+}
+
+// String conversion
+func (interval Interval) String() string {
+	return fmt.Sprintf("[%8d:%8d](%3d)", interval.Begin/Blocks, interval.End/Blocks, interval.Len()/Blocks)
 }
 
 // FileIntervalKind distinguishes between data and hole
@@ -32,6 +38,19 @@ const (
 type FileInterval struct {
 	Kind FileIntervalKind
 	Interval
+}
+
+func (i FileInterval) String() string {
+	kind := "?"
+    switch i.Kind {
+    case SparseData:
+		kind = "D"
+    case SparseHole:
+		kind = " "
+    case SparseIgnore:
+		kind = "i"        
+    }
+	return fmt.Sprintf("%s%v", kind, i.Interval)
 }
 
 // Storage block size in bytes

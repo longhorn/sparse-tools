@@ -4,6 +4,8 @@ import (
 	"crypto/sha1"
 	"os"
 
+	"fmt"
+
 	fio "github.com/rancher/sparse-tools/directfio"
 	"github.com/rancher/sparse-tools/log"
 )
@@ -22,7 +24,7 @@ func IntervalSplitter(spltterStream <-chan FileInterval, fileStream chan<- FileI
 	const batch = 32 * Blocks
 	for r := range spltterStream {
 		if verboseServer {
-			log.Debug("Server file interval:", r)
+			log.Debug("Interval Splitter:", r)
 		}
 		switch r.Kind {
 		case SparseHole:
@@ -47,6 +49,13 @@ func IntervalSplitter(spltterStream <-chan FileInterval, fileStream chan<- FileI
 type HashedInterval struct {
 	FileInterval
 	Hash []byte
+}
+
+func (i HashedInterval) String() string {
+	if len(i.Hash) > 0 {
+		return fmt.Sprintf("%v #%2x%2x %2x%2x", i.FileInterval, i.Hash[0], i.Hash[1], i.Hash[2], i.Hash[3])
+	}
+	return fmt.Sprintf("%v #         ", i.FileInterval)
 }
 
 // HashedDataInterval FileInterval plus its hash and data
@@ -99,12 +108,13 @@ func FileReader(fileStream <-chan FileInterval, file *os.File, unorderedStream c
 }
 
 // OrderIntervals puts back "out of order" read results
-func OrderIntervals(unorderedStream <-chan HashedDataInterval, orderedStream chan<- HashedDataInterval) {
+func OrderIntervals(prefix string, unorderedStream <-chan HashedDataInterval, orderedStream chan<- HashedDataInterval) {
 	pos := int64(0)
 	var m map[int64]HashedDataInterval // out of order completions
 	for r := range unorderedStream {
 		// Handle "in order" range
 		if pos == r.Begin {
+			log.Debug(prefix, r)
 			orderedStream <- r
 			pos = r.End
 			continue
@@ -116,6 +126,7 @@ func OrderIntervals(unorderedStream <-chan HashedDataInterval, orderedStream cha
 		// check the "out of order" stash for "in order"
 		for pop, existsNext := m[pos]; existsNext; {
 			// pop in order range
+			log.Debug(prefix, pop)
 			orderedStream <- pop
 			delete(m, pos)
 			pos = pop.End

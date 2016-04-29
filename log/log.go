@@ -10,7 +10,8 @@ type Level int
 
 // Levels
 const (
-	LevelDebug Level = 1 + iota
+	LevelTrace Level = 1 + iota
+	LevelDebug 
 	LevelInfo
 	LevelWarn
 	LevelError
@@ -39,6 +40,17 @@ func LevelPop() {
 
     len := len(logLevelStack)
     logLevel, logLevelStack = logLevelStack[len-1], logLevelStack[:len-1]  
+}
+
+// Trace log if trace is greater than current log level
+// The finest granularity
+func Trace(msg ...interface{}) {
+    logMutex.RLock()
+    defer logMutex.RUnlock()
+
+	if LevelTrace >= logLevel {
+		syslog.Println("D:", msg)
+	}
 }
 
 // Debug log if debug is greater than current log level

@@ -11,6 +11,8 @@ import (
 
 	. "github.com/rancher/sparse-tools/sparse"
 
+	"time"
+
 	"github.com/rancher/sparse-tools/log"
 )
 
@@ -22,11 +24,7 @@ type TestFileInterval struct {
 }
 
 func (i TestFileInterval) String() string {
-	kind := " "
-	if i.Kind == SparseData {
-		kind = "D"
-	}
-	return fmt.Sprintf("%s[%8d:%8d](%3d) %2X}", kind, i.Interval.Begin/Blocks, i.Interval.End/Blocks, i.Interval.Len()/Blocks, i.dataMask)
+	return fmt.Sprintf("{%v %2X}", i.FileInterval, i.dataMask)
 }
 
 func TestRandomLayout10MB(t *testing.T) {
@@ -47,6 +45,7 @@ func TestRandomLayout10MB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	os.Remove(name)
 }
 
 func TestRandomLayout100MB(t *testing.T) {
@@ -67,11 +66,71 @@ func TestRandomLayout100MB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	os.Remove(name)
+}
+
+func TestRandomSync100MB(t *testing.T) {
+	const seed = 1
+	const size = 100 /*MB*/ << 20
+	RandomSync(t, size, seed)
+}
+
+func TestRandomSync1GB(t *testing.T) {
+	seed := time.Now().UnixNano()
+	const size = 1 /*GB*/ << 30
+	if testing.Short() {
+		t.Skip("skipped 1GB random sync")
+	}
+	log.Info("seed=", seed)
+
+	log.LevelPush(log.LevelInfo)
+	defer log.LevelPop()
+
+	RandomSync(t, size, seed)
+}
+
+func RandomSync(t *testing.T, size, seed int64) {
+	const localhost = "127.0.0.1"
+	const timeout = 10 //seconds
+	var remoteAddr = TCPEndPoint{localhost, 5000}
+	const srcPrefix = "ssync-src"
+	const dstPrefix = "ssync-dst"
+
+	srcName := tempFileName(srcPrefix)
+	dstName := tempFileName(dstPrefix)
+	srcLayoutStream1, srcLayoutStream2 := teeLayout(generateLayout(srcPrefix, size, seed))
+	dstLayoutStream := generateLayout(dstPrefix, size, seed+1)
+
+	srcDone := createTestSparseFileLayout(srcName, size, srcLayoutStream1)
+	dstDone := createTestSparseFileLayout(dstName, size, dstLayoutStream)
+	srcLayout := unstreamLayout(srcLayoutStream2)
+	<-srcDone
+	<-dstDone
+	log.Info("Done writing layout of ", len(srcLayout), "items")
+
+	log.Info("Syncing...")
+
+	go TestServer(remoteAddr, timeout)
+	_, err := SyncFile(srcName, remoteAddr, dstName, timeout)
+
+	if err != nil {
+		t.Fatal("sync error")
+	}
+	log.Info("...syncing done")
+
+	log.Info("Checking...")
+	layoutStream := streamLayout(srcLayout)
+	err = checkTestSparseFileLayout(dstName, layoutStream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(srcName)
+	os.Remove(dstName)
 }
 
 func tempFileName(prefix string) string {
 	// Make a temporary file name
-	f, err := ioutil.TempFile("", prefix)
+	f, err := ioutil.TempFile(".", prefix)
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}
@@ -159,7 +218,8 @@ func makeIntervalData(interval TestFileInterval) []byte {
 	data := make([]byte, interval.Len())
 	if SparseData == interval.Kind {
 		for i := range data {
-			data[i] = interval.dataMask ^ byte(interval.Begin/Blocks+1)
+            value := byte((interval.Begin+int64(i))/Blocks)
+			data[i] = interval.dataMask ^ value
 		}
 	}
 	return data

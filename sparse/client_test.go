@@ -12,7 +12,6 @@ const localPath = "foo1.bar"
 const remotePath = "foo2.bar"
 const localhost = "127.0.0.1"
 const timeout = 5 //seconds
-
 var remoteAddr = TCPEndPoint{localhost, 5000}
 
 func TestSyncAnyFile(t *testing.T) {

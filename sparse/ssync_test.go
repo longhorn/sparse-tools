@@ -13,6 +13,8 @@ import (
 
 	"time"
 
+	"strconv"
+
 	"github.com/rancher/sparse-tools/log"
 )
 
@@ -75,16 +77,31 @@ func TestRandomSync100MB(t *testing.T) {
 	RandomSync(t, size, seed)
 }
 
-func TestRandomSync1GB(t *testing.T) {
-	seed := time.Now().UnixNano()
-	const size = 1 /*GB*/ << 30
+func TestRandomSyncCustomGB(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipped 1GB random sync")
+		t.Skip("skipped custom random sync")
 	}
-	log.Info("seed=", seed)
-
+    
+    // random seed
+	seed := time.Now().UnixNano()
 	log.LevelPush(log.LevelInfo)
 	defer log.LevelPop()
+	log.Info("seed=", seed)
+
+	// default size
+	var size = int64(100) /*MB*/ << 20
+	arg := os.Args[len(os.Args)-1]
+	sizeGB, err := strconv.Atoi(arg)
+	if err != nil {
+		log.Info("")
+		log.Info("Using default 100MB size for random seed test")
+		log.Info("For alternative size in GB use -timeout 10m -args <GB>")
+		log.Info("Increase the optional -timeout value for 20GB and larger sizes")
+		log.Info("")
+	} else {
+		log.Info("Using ", sizeGB, "(GB) size for random seed test")
+		size = int64(sizeGB) << 30
+	}
 
 	RandomSync(t, size, seed)
 }
@@ -218,7 +235,7 @@ func makeIntervalData(interval TestFileInterval) []byte {
 	data := make([]byte, interval.Len())
 	if SparseData == interval.Kind {
 		for i := range data {
-            value := byte((interval.Begin+int64(i))/Blocks)
+			value := byte((interval.Begin + int64(i)) / Blocks)
 			data[i] = interval.dataMask ^ value
 		}
 	}

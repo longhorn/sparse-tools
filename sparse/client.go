@@ -73,7 +73,7 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 
 	go IntervalSplitter(layoutStream, fileStream)
 	go FileReader(fileStream, file, unorderedStream)
-	go OrderIntervals(unorderedStream, orderedStream)
+	go OrderIntervals("src:", unorderedStream, orderedStream)
 
 	// Get remote file intervals and their hashes
 	netInStream := make(chan HashedInterval, 128)
@@ -216,7 +216,7 @@ func processDiff(abortStream chan<- error, errStream <-chan error, encoder *gob.
 		}
 		// Diff
 		if verboseClient {
-			log.Debug("Diff:", lrange.FileInterval, rrange.FileInterval)
+			log.Debug("Diff:", lrange.HashedInterval, rrange)
 		}
 		if lrange.Begin == rrange.Begin {
 			if lrange.End > rrange.End {

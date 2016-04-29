@@ -4,7 +4,7 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/rancher/go-fibmap"
+	"github.com/frostschutz/go-fibmap"
 	"github.com/rancher/sparse-tools/log"
 	"fmt"
 )

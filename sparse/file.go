@@ -37,8 +37,13 @@ func IntervalSplitter(spltterStream <-chan FileInterval, fileStream chan<- FileI
 				if offset+size > r.End {
 					size = r.End - offset
 				}
-				fileStream <- FileInterval{SparseData, Interval{offset, offset + size}}
-				offset += size
+				interval := Interval{offset, offset + size}
+				if size == batch && interval.End%batch != 0 {
+					interval.End = interval.End / batch * batch
+				}
+				log.Debug("Interval Splitter data:", interval)
+				fileStream <- FileInterval{SparseData, interval}
+				offset += interval.Len()
 			}
 		}
 	}

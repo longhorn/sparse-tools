@@ -10,13 +10,14 @@ import (
 
 	"io/ioutil"
 
-	fio "github.com/rancher/sparse-tools/directfio"
 	"syscall"
+
+	fio "github.com/rancher/sparse-tools/directfio"
 )
 
 func tempFileName() string {
 	// Make a temporary file name
-	f, err := ioutil.TempFile("", "fio_test")
+	f, err := ioutil.TempFile(".", "fio_test")
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}
@@ -128,7 +129,7 @@ func TestDirectFileIO2(t *testing.T) {
 	cleanup(path)
 }
 
-const fileSize = int64(512) /*MB*/ << 20
+const fileSize = int64(1) /*GB*/ << 30
 
 const FileMode = os.O_RDWR
 
@@ -219,7 +220,9 @@ func ioTest(title string, b *testing.B, path string, threads, batch int, io func
 		<-done
 	}
 	stop := time.Now().UnixNano()
-	log.Println(title, ":", threads, "(threads) batch=", batch, "(blocks)", "thruput=", 1000000000*fileSize/(1<<20)/(stop-start), "(MB/s)")
+	if len(title) > 0 {
+		log.Println(title, ":", threads, "(threads) batch=", batch, "(blocks)", "thruput=", 1000000*fileSize/(1<<20)/((stop-start)/1000), "(MB/s)")
+	}
 }
 
 func BenchmarkIO8(b *testing.B) {
@@ -231,11 +234,15 @@ func BenchmarkIO8(b *testing.B) {
 	}
 	defer f.Close()
 	f.Truncate(fileSize)
+	log.Println("")
+	ioTest("pilot write", b, path, 8, 32, write)
 
 	for batch := 32; batch >= 1; batch >>= 1 {
 		log.Println("")
 		for threads := 1; threads <= 8; threads <<= 1 {
 			ioTest("write", b, path, threads, batch, write)
+		}
+		for threads := 1; threads <= 8; threads <<= 1 {
 			ioTest(" read", b, path, threads, batch, read)
 		}
 	}
@@ -252,11 +259,15 @@ func BenchmarkIO8u(b *testing.B) {
 	}
 	defer f.Close()
 	f.Truncate(fileSize)
+	log.Println("")
+	ioTest("pilot write", b, path, 8, 32, writeUnaligned)
 
 	for batch := 32; batch >= 1; batch >>= 1 {
 		log.Println("")
 		for threads := 1; threads <= 8; threads <<= 1 {
 			ioTest("unaligned write", b, path, threads, batch, writeUnaligned)
+		}
+		for threads := 1; threads <= 8; threads <<= 1 {
 			ioTest(" unaligned read", b, path, threads, batch, readUnaligned)
 		}
 	}

@@ -8,6 +8,7 @@ import (
 
 	fio "github.com/rancher/sparse-tools/directfio"
 	"github.com/rancher/sparse-tools/log"
+	"bytes"
 )
 
 import "encoding/gob"
@@ -320,15 +321,7 @@ func processDiff(abortStream chan<- error, errStream <-chan error, encoder *gob.
 }
 
 func isHashDifferent(a, b []byte) bool {
-	if len(a) != len(b) {
-		return true
-	}
-	for i, val := range a {
-		if val != b[i] {
-			return true
-		}
-	}
-	return false // hashes are equal
+    return !bytes.Equal(a, b)
 }
 
 func processFileInterval(local HashedDataInterval, remote HashedInterval, netStream chan<- diffChunk) {

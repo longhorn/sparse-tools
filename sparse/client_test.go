@@ -534,8 +534,8 @@ func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) (hashL
 }
 
 // created in current dir for benchmark tests
-var localBigPath = tempBigFilePath("ssync--src-")
-var remoteBigPath = tempBigFilePath("ssync-dst-")
+var localBigPath = "ssync-src-file.bar"
+var remoteBigPath = "ssync-dst-file.bar"
 
 func Test_1G_cleanup(*testing.T) {
 	// remove temporaries if the benchmarks below are not run

@@ -1,15 +1,12 @@
-package sparse_test
+package sparse
 
 import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"testing"
-
-	. "github.com/rancher/sparse-tools/sparse"
 
 	"time"
 
@@ -17,8 +14,6 @@ import (
 
 	"github.com/rancher/sparse-tools/log"
 )
-
-const batch = 32 // blocks for read/write
 
 type TestFileInterval struct {
 	FileInterval
@@ -33,7 +28,9 @@ func TestRandomLayout10MB(t *testing.T) {
 	const seed = 0
 	const size = 10 /*MB*/ << 20
 	prefix := "ssync"
-	name := tempFileName(prefix)
+	name := tempFilePath(prefix)
+	defer fileCleanup(name)
+
 	layoutStream := generateLayout(prefix, size, seed)
 	layout1, layout2 := teeLayout(layoutStream)
 
@@ -47,14 +44,15 @@ func TestRandomLayout10MB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	os.Remove(name)
 }
 
 func TestRandomLayout100MB(t *testing.T) {
 	const seed = 0
 	const size = 100 /*MB*/ << 20
 	prefix := "ssync"
-	name := tempFileName(prefix)
+	name := tempFilePath(prefix)
+    defer fileCleanup(name)
+    
 	layoutStream := generateLayout(prefix, size, seed)
 	layout1, layout2 := teeLayout(layoutStream)
 
@@ -68,21 +66,25 @@ func TestRandomLayout100MB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	os.Remove(name)
 }
+
+const srcPrefix = "ssync-src"
+const dstPrefix = "ssync-dst"
 
 func TestRandomSync100MB(t *testing.T) {
 	const seed = 1
 	const size = 100 /*MB*/ << 20
-	RandomSync(t, size, seed)
+	srcName := tempFilePath(srcPrefix)
+	dstName := tempFilePath(dstPrefix)
+	RandomSync(t, size, seed, srcName, dstName)
 }
 
 func TestRandomSyncCustomGB(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipped custom random sync")
 	}
-    
-    // random seed
+
+	// random seed
 	seed := time.Now().UnixNano()
 	log.LevelPush(log.LevelInfo)
 	defer log.LevelPop()
@@ -95,31 +97,33 @@ func TestRandomSyncCustomGB(t *testing.T) {
 	if err != nil {
 		log.Info("")
 		log.Info("Using default 100MB size for random seed test")
-		log.Info("For alternative size in GB use -timeout 10m -args <GB>")
+		log.Info("For alternative size in GB and in current dir(vs tmp) use -timeout 10m -args <GB>")
 		log.Info("Increase the optional -timeout value for 20GB and larger sizes")
 		log.Info("")
+		srcName := tempFilePath(srcPrefix)
+		dstName := tempFilePath(dstPrefix)
+		RandomSync(t, size, seed, srcName, dstName)
 	} else {
 		log.Info("Using ", sizeGB, "(GB) size for random seed test")
 		size = int64(sizeGB) << 30
+        srcName := tempBigFilePath(srcPrefix)
+        dstName := tempBigFilePath(dstPrefix)
+        RandomSync(t, size, seed, srcName, dstName)
 	}
-
-	RandomSync(t, size, seed)
 }
 
-func RandomSync(t *testing.T, size, seed int64) {
+func RandomSync(t *testing.T, size, seed int64, srcPath, dstPath string) {
 	const localhost = "127.0.0.1"
 	const timeout = 10 //seconds
 	var remoteAddr = TCPEndPoint{localhost, 5000}
-	const srcPrefix = "ssync-src"
-	const dstPrefix = "ssync-dst"
 
-	srcName := tempFileName(srcPrefix)
-	dstName := tempFileName(dstPrefix)
+	defer filesCleanup(srcPath, dstPath)
+
 	srcLayoutStream1, srcLayoutStream2 := teeLayout(generateLayout(srcPrefix, size, seed))
 	dstLayoutStream := generateLayout(dstPrefix, size, seed+1)
 
-	srcDone := createTestSparseFileLayout(srcName, size, srcLayoutStream1)
-	dstDone := createTestSparseFileLayout(dstName, size, dstLayoutStream)
+	srcDone := createTestSparseFileLayout(srcPath, size, srcLayoutStream1)
+	dstDone := createTestSparseFileLayout(dstPath, size, dstLayoutStream)
 	srcLayout := unstreamLayout(srcLayoutStream2)
 	<-srcDone
 	<-dstDone
@@ -128,7 +132,7 @@ func RandomSync(t *testing.T, size, seed int64) {
 	log.Info("Syncing...")
 
 	go TestServer(remoteAddr, timeout)
-	_, err := SyncFile(srcName, remoteAddr, dstName, timeout)
+	_, err := SyncFile(srcPath, remoteAddr, dstPath, timeout)
 
 	if err != nil {
 		t.Fatal("sync error")
@@ -137,22 +141,10 @@ func RandomSync(t *testing.T, size, seed int64) {
 
 	log.Info("Checking...")
 	layoutStream := streamLayout(srcLayout)
-	err = checkTestSparseFileLayout(dstName, layoutStream)
+	err = checkTestSparseFileLayout(dstPath, layoutStream)
 	if err != nil {
 		t.Fatal(err)
 	}
-	os.Remove(srcName)
-	os.Remove(dstName)
-}
-
-func tempFileName(prefix string) string {
-	// Make a temporary file name
-	f, err := ioutil.TempFile(".", prefix)
-	if err != nil {
-		log.Fatal("Failed to make temp file", err)
-	}
-	defer f.Close()
-	return f.Name()
 }
 
 func unstreamLayout(in <-chan TestFileInterval) []TestFileInterval {

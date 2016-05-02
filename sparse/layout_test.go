@@ -1,9 +1,6 @@
 package sparse
 
 import (
-	"bytes"
-	"errors"
-	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -11,7 +8,7 @@ import (
 	"github.com/rancher/sparse-tools/log"
 )
 
-const name = "foo.bar"
+var name = tempFilePath("")
 
 func TestLayout0(t *testing.T) {
 	layoutModel := []FileInterval{}
@@ -134,6 +131,7 @@ func layoutTest(t *testing.T, name string, layoutModel, layoutExpected []FileInt
 	log.LevelPush(log.LevelInfo)
 	defer log.LevelPop()
 
+	defer fileCleanup(name)
 	createTestSparseFile(name, layoutModel)
 
 	f, err := os.Open(name)
@@ -155,12 +153,12 @@ func layoutTest(t *testing.T, name string, layoutModel, layoutExpected []FileInt
 	if checkTestSparseFile(name, layoutModel) != nil {
 		t.Fatal("wrong sparse layout content")
 	}
-	os.Remove(name)
 }
 
 func punchHoleTest(t *testing.T, name string, layoutModel []FileInterval, hole Interval, layoutExpected []FileInterval) {
 	createTestSparseFile(name, layoutModel)
 
+    defer fileCleanup(name)
 	f, err := os.OpenFile(name, os.O_RDWR, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -181,8 +179,6 @@ func punchHoleTest(t *testing.T, name string, layoutModel []FileInterval, hole I
 	if err != nil || !reflect.DeepEqual(layoutExpected, layoutActual) {
 		t.Fatal("wrong sparse layout")
 	}
-
-	os.Remove(name)
 }
 
 func makeData(interval FileInterval) []byte {
@@ -193,87 +189,4 @@ func makeData(interval FileInterval) []byte {
 		}
 	}
 	return data
-}
-
-const batch = int64(32) // Blocks
-
-func createTestSparseFile(name string, layout []FileInterval) {
-	f, err := os.Create(name)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer f.Close()
-
-	if 0 == len(layout) {
-		return // empty file
-	}
-
-	// Fill up data
-	for _, interval := range layout {
-		if SparseData == interval.Kind {
-			size := batch * Blocks
-			for offset := interval.Begin; offset < interval.End; {
-				if offset+size > interval.End {
-					size = interval.End - offset
-				}
-				data := makeData(FileInterval{SparseData, Interval{offset, offset + size}})
-				f.WriteAt(data, offset)
-				offset += size
-			}
-		}
-	}
-
-	// Resize the file to the last hole
-	last := len(layout) - 1
-	if SparseHole == layout[last].Kind {
-		if err := f.Truncate(layout[last].End); err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	f.Sync()
-}
-
-func checkTestSparseFile(name string, layout []FileInterval) error {
-	f, err := os.Open(name)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer f.Close()
-
-	if 0 == len(layout) {
-		return nil // empty file
-	}
-
-	// Read and check data
-	for _, interval := range layout {
-		if SparseData == interval.Kind {
-			size := batch * Blocks
-			for offset := interval.Begin; offset < interval.End; {
-				if offset+size > interval.End {
-					size = interval.End - offset
-				}
-				dataModel := makeData(FileInterval{SparseData, Interval{offset, offset + size}})
-				data := make([]byte, size)
-				f.ReadAt(data, offset)
-				offset += size
-
-				if !bytes.Equal(data, dataModel) {
-					return errors.New(fmt.Sprint("data equality check failure at", interval))
-				}
-			}
-		} else if SparseHole == interval.Kind {
-			layoutActual, err := RetrieveLayout(f, interval.Interval)
-			if err != nil {
-				return errors.New(fmt.Sprint("hole retrieval failure at", interval, err))
-			}
-			if len(layoutActual) != 1 {
-				return errors.New(fmt.Sprint("hole check failure at", interval))
-			}
-			if layoutActual[0] != interval {
-				return errors.New(fmt.Sprint("hole equality check failure at", interval))
-			}
-		}
-	}
-	return nil // success
 }

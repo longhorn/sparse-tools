@@ -118,12 +118,17 @@ func checkLayout(from, to []FileInterval) bool {
 }
 
 func testFoldFile(t *testing.T, layoutFrom, layoutTo []FileInterval) (hashLocal []byte) {
+	localPath := tempFilePath("sfold-src-")
+	remotePath := tempFilePath("sfold-dst-")
+
 	// Only log errors
 	log.LevelPush(log.LevelError)
 	defer log.LevelPop()
 
+	filesCleanup(localPath, remotePath)
+	defer filesCleanup(localPath, remotePath)
+
 	// Create test files
-	filesCleanup()
 	createTestSparseFile(localPath, layoutFrom)
 	createTestSparseFile(remotePath, layoutTo)
 	layoutResult := foldLayout(layoutFrom, layoutTo)
@@ -140,6 +145,5 @@ func testFoldFile(t *testing.T, layoutFrom, layoutTo []FileInterval) (hashLocal 
 	if err != nil {
 		t.Fatal("Folded content diverged:", err)
 	}
-	filesCleanup()
 	return
 }

@@ -1,15 +1,11 @@
 package sparse
 
 import (
-	"os"
-	"os/exec"
 	"testing"
 
 	"github.com/rancher/sparse-tools/log"
 )
 
-const localPath = "foo1.bar"
-const remotePath = "foo2.bar"
 const localhost = "127.0.0.1"
 const timeout = 5 //seconds
 var remoteAddr = TCPEndPoint{localhost, 5000}
@@ -28,7 +24,7 @@ func TestSyncAnyFile(t *testing.T) {
 		if err != nil {
 			t.Fatal("sync error")
 		}
-		if !filesAreEqual(localPath, remotePath) {
+		if !filesAreEqual(src, dst) {
 			t.Fatal("file content diverged")
 		}
 	}
@@ -507,12 +503,16 @@ func TestSyncHash2(t *testing.T) {
 }
 
 func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) (hashLocal []byte) {
+	localPath := tempFilePath("ssync-src-")
+	remotePath := tempFilePath("ssync-dst-")
 	// Only log errors
 	log.LevelPush(log.LevelError)
 	defer log.LevelPop()
 
+	filesCleanup(localPath, remotePath)
+	defer filesCleanup(localPath, remotePath)
+
 	// Create test files
-	filesCleanup()
 	createTestSparseFile(localPath, layoutLocal)
 	if len(layoutRemote) > 0 {
 		// only create destination test file if layout is speciifed
@@ -530,8 +530,16 @@ func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) (hashL
 	if !filesAreEqual(localPath, remotePath) {
 		t.Fatal("file content diverged")
 	}
-	filesCleanup()
 	return
+}
+
+// created in current dir for benchmark tests
+var localBigPath = tempBigFilePath("ssync--src-")
+var remoteBigPath = tempBigFilePath("ssync-dst-")
+
+func Test_1G_cleanup(*testing.T) {
+	// remove temporaries if the benchmarks below are not run
+	filesCleanup(localBigPath, remoteBigPath)
 }
 
 func Benchmark_1G_InitFiles(b *testing.B) {
@@ -541,9 +549,9 @@ func Benchmark_1G_InitFiles(b *testing.B) {
 	}
 	layoutRemote := []FileInterval{}
 
-	filesCleanup()
-	createTestSparseFile(localPath, layoutLocal)
-	createTestSparseFile(remotePath, layoutRemote)
+	filesCleanup(localBigPath, remoteBigPath)
+	createTestSparseFile(localBigPath, layoutLocal) 
+	createTestSparseFile(remoteBigPath, layoutRemote)
 }
 
 func Benchmark_1G_SendFiles_Whole(b *testing.B) {
@@ -551,7 +559,7 @@ func Benchmark_1G_SendFiles_Whole(b *testing.B) {
 	defer log.LevelPop()
 
 	go TestServer(remoteAddr, timeout)
-	_, err := SyncFile(localPath, remoteAddr, remotePath, timeout)
+	_, err := SyncFile(localBigPath, remoteAddr, remoteBigPath, timeout)
 
 	if err != nil {
 		b.Fatal("sync error")
@@ -563,7 +571,7 @@ func Benchmark_1G_SendFiles_Diff(b *testing.B) {
 	defer log.LevelPop()
 
 	go TestServer(remoteAddr, timeout)
-	_, err := SyncFile(localPath, remoteAddr, remotePath, timeout)
+	_, err := SyncFile(localBigPath, remoteAddr, remoteBigPath, timeout)
 
 	if err != nil {
 		b.Fatal("sync error")
@@ -571,20 +579,9 @@ func Benchmark_1G_SendFiles_Diff(b *testing.B) {
 }
 
 func Benchmark_1G_CheckFiles(b *testing.B) {
-	if !filesAreEqual(localPath, remotePath) {
+	if !filesAreEqual(localBigPath, remoteBigPath) {
 		b.Error("file content diverged")
 		return
 	}
-	filesCleanup()
-}
-
-func filesAreEqual(aPath, bPath string) bool {
-	cmd := exec.Command("diff", aPath, bPath)
-	err := cmd.Run()
-	return nil == err
-}
-
-func filesCleanup() {
-	os.Remove(localPath)
-	os.Remove(remotePath)
+	filesCleanup(localBigPath, remoteBigPath)
 }

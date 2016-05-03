@@ -73,7 +73,7 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	orderedStream := make(chan HashedDataInterval, 128)
 
 	go IntervalSplitter(layoutStream, fileStream)
-	go FileReader(fileStream, file, unorderedStream)
+	go FileReader(fileStream, localPath, unorderedStream)
 	go OrderIntervals("src:", unorderedStream, orderedStream)
 
 	// Get remote file intervals and their hashes

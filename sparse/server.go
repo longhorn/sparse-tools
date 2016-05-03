@@ -160,7 +160,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	encoder.Encode(true) // ACK request
 
 	go IntervalSplitter(layoutStream, fileStream)
-	go FileReader(fileStream, fileRO, unorderedStream)
+	go FileReader(fileStream, path, unorderedStream)
 	go OrderIntervals("dst:", unorderedStream, orderedStream)
 	go Tee(orderedStream, netOutStream, checksumStream)
 

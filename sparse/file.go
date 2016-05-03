@@ -6,6 +6,8 @@ import (
 
 	"fmt"
 
+	"sync"
+
 	fio "github.com/rancher/sparse-tools/directfio"
 	"github.com/rancher/sparse-tools/log"
 )
@@ -79,7 +81,14 @@ type DataInterval struct {
 var HashSalt = []byte("TODO: randomize and exchange between client/server")
 
 // FileReader supports concurrent file reading
-func FileReader(fileStream <-chan FileInterval, file *os.File, unorderedStream chan<- HashedDataInterval) {
+func FileReader(fileStream <-chan FileInterval, path string, unorderedStream chan<- HashedDataInterval) {
+	// open file
+	file, err := fio.OpenFile(path, os.O_RDONLY, 0)
+	if err != nil {
+		log.Fatal("Failed to open file for reading:", string(path), err)
+	}
+	defer file.Close()
+
 	for r := range fileStream {
 		switch r.Kind {
 		case SparseHole:
@@ -110,6 +119,36 @@ func FileReader(fileStream <-chan FileInterval, file *os.File, unorderedStream c
 		}
 	}
 	close(unorderedStream)
+}
+
+// FileWriter supports concurrent file reading
+// add this writer to wgroup before invoking
+func FileWriter(fileStream <-chan DataInterval, path string, wgroup *sync.WaitGroup) {
+	// open file
+	file, err := fio.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		log.Fatal("Failed to open file for wroting:", string(path), err)
+	}
+	defer file.Close()
+
+	for r := range fileStream {
+		switch r.Kind {
+		case SparseHole:
+			log.Debug("trimming...")
+			err := PunchHole(file, r.Interval)
+			if err != nil {
+				log.Fatal("Failed to trim file")
+			}
+
+		case SparseData:
+			log.Debug("writing data...")
+			_, err = fio.WriteAt(file, r.Data, r.Begin)
+			if err != nil {
+				log.Fatal("Failed to write file")
+			}
+		}
+	}
+	wgroup.Done()
 }
 
 // OrderIntervals puts back "out of order" read results

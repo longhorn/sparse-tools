@@ -51,8 +51,8 @@ func TestRandomLayout100MB(t *testing.T) {
 	const size = 100 /*MB*/ << 20
 	prefix := "ssync"
 	name := tempFilePath(prefix)
-    defer fileCleanup(name)
-    
+	defer fileCleanup(name)
+
 	layoutStream := generateLayout(prefix, size, seed)
 	layout1, layout2 := teeLayout(layoutStream)
 
@@ -76,7 +76,15 @@ func TestRandomSync100MB(t *testing.T) {
 	const size = 100 /*MB*/ << 20
 	srcName := tempFilePath(srcPrefix)
 	dstName := tempFilePath(dstPrefix)
-	RandomSync(t, size, seed, srcName, dstName)
+	RandomSync(t, size, seed, srcName, dstName, true /*create dstFile*/)
+}
+
+func TestRandomSyncNoDst100MB(t *testing.T) {
+	const seed = 2
+	const size = 100 /*MB*/ << 20
+	srcName := tempFilePath(srcPrefix)
+	dstName := tempFilePath(dstPrefix)
+	RandomSync(t, size, seed, srcName, dstName, false /*no dstFile*/)
 }
 
 func TestRandomSyncCustomGB(t *testing.T) {
@@ -102,17 +110,17 @@ func TestRandomSyncCustomGB(t *testing.T) {
 		log.Info("")
 		srcName := tempFilePath(srcPrefix)
 		dstName := tempFilePath(dstPrefix)
-		RandomSync(t, size, seed, srcName, dstName)
+		RandomSync(t, size, seed, srcName, dstName, true /*create dstFile*/)
 	} else {
 		log.Info("Using ", sizeGB, "(GB) size for random seed test")
 		size = int64(sizeGB) << 30
-        srcName := tempBigFilePath(srcPrefix)
-        dstName := tempBigFilePath(dstPrefix)
-        RandomSync(t, size, seed, srcName, dstName)
+		srcName := tempBigFilePath(srcPrefix)
+		dstName := tempBigFilePath(dstPrefix)
+		RandomSync(t, size, seed, srcName, dstName, true /*create dstFile*/)
 	}
 }
 
-func RandomSync(t *testing.T, size, seed int64, srcPath, dstPath string) {
+func RandomSync(t *testing.T, size, seed int64, srcPath, dstPath string, dstCreate bool) {
 	const localhost = "127.0.0.1"
 	const timeout = 10 //seconds
 	var remoteAddr = TCPEndPoint{localhost, 5000}
@@ -123,10 +131,13 @@ func RandomSync(t *testing.T, size, seed int64, srcPath, dstPath string) {
 	dstLayoutStream := generateLayout(dstPrefix, size, seed+1)
 
 	srcDone := createTestSparseFileLayout(srcPath, size, srcLayoutStream1)
-	dstDone := createTestSparseFileLayout(dstPath, size, dstLayoutStream)
 	srcLayout := unstreamLayout(srcLayoutStream2)
+	if dstCreate {
+		// Create destination with some data
+		dstDone := createTestSparseFileLayout(dstPath, size, dstLayoutStream)
+		<-dstDone
+	}
 	<-srcDone
-	<-dstDone
 	log.Info("Done writing layout of ", len(srcLayout), "items")
 
 	log.Info("Syncing...")
@@ -243,7 +254,6 @@ func createTestSparseFileLayout(name string, fileSize int64, layout <-chan TestF
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer f.Close()
 		err = f.Truncate(fileSize)
 		if err != nil {
 			log.Fatal(err)
@@ -268,6 +278,7 @@ func createTestSparseFileLayout(name string, fileSize int64, layout <-chan TestF
 			}
 		}
 		f.Sync()
+		f.Close()
 		close(done)
 	}()
 

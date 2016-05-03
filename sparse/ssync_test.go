@@ -254,7 +254,6 @@ func createTestSparseFileLayout(name string, fileSize int64, layout <-chan TestF
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer f.Close()
 		err = f.Truncate(fileSize)
 		if err != nil {
 			log.Fatal(err)
@@ -279,6 +278,7 @@ func createTestSparseFileLayout(name string, fileSize int64, layout <-chan TestF
 			}
 		}
 		f.Sync()
+		f.Close()
 		close(done)
 	}()
 

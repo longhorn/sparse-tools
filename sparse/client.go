@@ -21,6 +21,13 @@ import "errors"
 import "fmt"
 import "time"
 
+// HashCollsisionError indicates block hash collision
+type HashCollsisionError struct{}
+
+func (e *HashCollsisionError) Error() string {
+	return "file hash divergence: storage error or block hash collision"
+}
+
 // TCPEndPoint tcp connection address
 type TCPEndPoint struct {
 	Host string
@@ -32,6 +39,20 @@ const verboseClient = true
 
 // SyncFile synchronizes local file to remote host
 func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int) (hashLocal []byte, err error) {
+	for retries := 1; retries >= 0; retries-- {
+		hashLocal, err = syncFile(localPath, addr, remotePath, timeout, retries > 0)
+		if err != nil {
+			if _, ok := err.(*HashCollsisionError); ok {
+				// retry on HahsCollisionError
+				continue
+			}
+		}
+		break
+	}
+	return
+}
+
+func syncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int, retry bool) (hashLocal []byte, err error) {
 	hashLocal = make([]byte, 0) // empty hash for errors
 	file, err := fio.OpenFile(localPath, os.O_RDONLY, 0)
 	if err != nil {
@@ -88,7 +109,7 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	netInStreamDone := make(chan bool)
 	go netDstReceiver(decoder, netInStream, netInStreamDone)
 
-	return processDiff(salt, abortStream, errStream, encoder, decoder, orderedStream, netInStream, netInStreamDone, file)
+	return processDiff(salt, abortStream, errStream, encoder, decoder, orderedStream, netInStream, netInStreamDone, file, retry)
 }
 
 func connect(host, port string, timeout int) net.Conn {
@@ -193,7 +214,7 @@ type diffChunk struct {
 	header DataInterval
 }
 
-func processDiff(salt []byte, abortStream chan<- error, errStream <-chan error, encoder *gob.Encoder, decoder *gob.Decoder, local <-chan HashedDataInterval, remote <-chan HashedInterval, netInStreamDone <-chan bool, file *os.File) (hashLocal []byte, err error) {
+func processDiff(salt []byte, abortStream chan<- error, errStream <-chan error, encoder *gob.Encoder, decoder *gob.Decoder, local <-chan HashedDataInterval, remote <-chan HashedInterval, netInStreamDone <-chan bool, file *os.File, retry bool) (hashLocal []byte, err error) {
 	// Local:   __ _*
 	// Remote:  *_ **
 	hashLocal = make([]byte, 0) // empty hash for errors
@@ -309,8 +330,13 @@ func processDiff(salt []byte, abortStream chan<- error, errStream <-chan error, 
 	if isHashDifferent(hashLocal, hashRemote) {
 		log.Warn("hashLocal =", hashLocal)
 		log.Warn("hashRemote=", hashRemote)
-		err = errors.New("file hash divergence: storage error or block hash collision")
-		return
+		err = &HashCollsisionError{}
+	} else {
+		retry = false // don't retry on
+	}
+	err = encoder.Encode(retry)
+	if err != nil {
+		log.Fatal("Cient protocol remote retry error:", err)
 	}
 	return
 }

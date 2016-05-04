@@ -53,8 +53,9 @@ func server(addr TCPEndPoint, serveOnce /*test flag*/ bool, timeout int) {
 		if serveOnce {
 			// This is to avoid server listening port conflicts while running tests
 			// exit after single connection request
-			serveConnection(conn)
-			break
+			if serveConnection(conn) {
+				break // no retries
+			}
 		}
 
 		go serveConnection(conn)
@@ -74,7 +75,8 @@ type requestHeader struct {
 	Code  requestCode
 }
 
-func serveConnection(conn net.Conn) {
+// returns true if no retry is necessary
+func serveConnection(conn net.Conn) bool {
 	defer conn.Close()
 
 	decoder := gob.NewDecoder(conn)
@@ -82,11 +84,11 @@ func serveConnection(conn net.Conn) {
 	err := decoder.Decode(&request)
 	if err != nil {
 		log.Fatal("Protocol decoder error:", err)
-		return
+		return true
 	}
 	if requestMagic != request.Magic {
 		log.Error("Bad request")
-		return
+		return true
 	}
 
 	switch request.Code {
@@ -95,26 +97,28 @@ func serveConnection(conn net.Conn) {
 		err := decoder.Decode(&path)
 		if err != nil {
 			log.Fatal("Protocol decoder error:", err)
-			return
+			return true
 		}
 		var size int64
 		err = decoder.Decode(&size)
 		if err != nil {
 			log.Fatal("Protocol decoder error:", err)
-			return
+			return true
 		}
 		var salt []byte
 		err = decoder.Decode(&salt)
 		if err != nil {
 			log.Fatal("Protocol decoder error:", err)
-			return
+			return true
 		}
 		encoder := gob.NewEncoder(conn)
-		serveSyncRequest(encoder, decoder, path, size, salt)
+		return serveSyncRequest(encoder, decoder, path, size, salt)
 	}
+    return true
 }
 
-func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, size int64, salt []byte) {
+// returns true if no retry is necessary
+func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, size int64, salt []byte) bool {
 
 	// Open destination file
 	file, err := fio.OpenFile(path, os.O_RDWR, 0666)
@@ -123,7 +127,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 		if err != nil {
 			log.Error("Failed to create file:", string(path), err)
 			encoder.Encode(false) // NACK request
-			return
+			return true
 		}
 	}
 	defer file.Close()
@@ -132,7 +136,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	if err = file.Truncate(size); err != nil {
 		log.Error("Failed to resize file:", string(path), err)
 		encoder.Encode(false) // NACK request
-		return
+		return true
 	}
 
 	// open file
@@ -140,7 +144,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	if err != nil {
 		log.Error("Failed to open file for reading:", string(path), err)
 		encoder.Encode(false) // NACK request
-		return
+		return true
 	}
 	defer fileRO.Close()
 
@@ -164,7 +168,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	err = loadFileLayout(abortStream, fileRO, layoutStream, errStream)
 	if err != nil {
 		encoder.Encode(false) // NACK request
-		return
+		return true
 	}
 	encoder.Encode(true) // ACK request
 
@@ -198,14 +202,22 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	err = encoder.Encode(status)
 	if err != nil {
 		log.Fatal("Protocol encoder error:", err)
-		return
+		return true
 	}
 	// reply with local hash
 	err = encoder.Encode(hash)
 	if err != nil {
 		log.Fatal("Protocol encoder error:", err)
-		return
+		return true
 	}
+    
+    var retry bool
+    err = decoder.Decode(&retry)
+	if err != nil {
+		log.Fatal("Protocol retry decoder error:", err)
+		return true
+	}
+    return !retry // don't terminate server if retry expected
 }
 
 // Tee ordered intervals into the network and checksum checker

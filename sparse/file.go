@@ -154,21 +154,20 @@ func FileWriter(fileStream <-chan DataInterval, path string, wgroup *sync.WaitGr
 // OrderIntervals puts back "out of order" read results
 func OrderIntervals(prefix string, unorderedStream <-chan HashedDataInterval, orderedStream chan<- HashedDataInterval) {
 	pos := int64(0)
-	var m map[int64]HashedDataInterval // out of order completions
+	m := make(map[int64]HashedDataInterval) // out of order completions
 	for r := range unorderedStream {
-		// Handle "in order" range
 		if pos == r.Begin {
+			// Handle "in order" range
 			log.Debug(prefix, r)
 			orderedStream <- r
 			pos = r.End
-			continue
+		} else {
+			// push "out of order"" range
+			m[r.Begin] = r
 		}
 
-		// push "out of order"" range
-		m[r.Begin] = r
-
 		// check the "out of order" stash for "in order"
-		for pop, existsNext := m[pos]; existsNext; {
+		for pop, existsNext := m[pos]; len(m) > 0 && existsNext; pop, existsNext = m[pos] {
 			// pop in order range
 			log.Debug(prefix, pop)
 			orderedStream <- pop

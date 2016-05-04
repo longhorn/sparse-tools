@@ -516,11 +516,23 @@ func TestSyncHashSalt(t *testing.T) {
 	}
 }
 
+func TestSyncFileHashRetry(t *testing.T) {
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 1 * Blocks}},
+		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+	}
+	layoutRemote := []FileInterval{}
+    
+    // Simulate file hash mismatch
+    SetFailPointFileHashMatch(true)
+	testSyncFile(t, layoutLocal, layoutRemote)
+}
+
 func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) (hashLocal []byte) {
 	localPath := tempFilePath("ssync-src-")
 	remotePath := tempFilePath("ssync-dst-")
 	// Only log errors
-	log.LevelPush(log.LevelError)
+	log.LevelPush(log.LevelWarn)
 	defer log.LevelPop()
 
 	filesCleanup(localPath, remotePath)

@@ -103,12 +103,18 @@ func serveConnection(conn net.Conn) {
 			log.Fatal("Protocol decoder error:", err)
 			return
 		}
+		var salt []byte
+		err = decoder.Decode(&salt)
+		if err != nil {
+			log.Fatal("Protocol decoder error:", err)
+			return
+		}
 		encoder := gob.NewEncoder(conn)
-		serveSyncRequest(encoder, decoder, path, size)
+		serveSyncRequest(encoder, decoder, path, size, salt)
 	}
 }
 
-func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, size int64) {
+func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, size int64, salt []byte) {
 
 	// Open destination file
 	file, err := fio.OpenFile(path, os.O_RDWR, 0666)
@@ -163,7 +169,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	encoder.Encode(true) // ACK request
 
 	go IntervalSplitter(layoutStream, fileStream)
-	FileReaderGroup(fileReaders, fileStream, path, unorderedStream)
+	FileReaderGroup(fileReaders, salt, fileStream, path, unorderedStream)
 	go OrderIntervals("dst:", unorderedStream, orderedStream)
 	go Tee(orderedStream, netOutStream, checksumStream)
 
@@ -173,7 +179,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	// Start receiving deltas, write those and compute file hash
 	fileWritten := FileWriterGroup(fileWriters, fileWriteStream, path)
 	go netReceiver(decoder, file, netInStream, fileWriteStream, deltaReceiverDoneDone) // receiver and checker
-	go Validator(checksumStream, netInStream, resultStream)
+	go Validator(salt, checksumStream, netInStream, resultStream)
 
 	// Block till completion
 	status := true
@@ -318,10 +324,10 @@ func hashFileData(fileHasher hash.Hash, dataLen int64, data []byte) {
 }
 
 // Validator merges source and diff data; produces hash of the destination file
-func Validator(checksumStream, netInStream <-chan DataInterval, resultStream chan<- []byte) {
+func Validator(salt []byte, checksumStream, netInStream <-chan DataInterval, resultStream chan<- []byte) {
 	fileHasher := sha1.New()
 	//TODO: error handling
-	fileHasher.Write(HashSalt)
+	fileHasher.Write(salt)
 	r := <-checksumStream // original dst file data
 	q := <-netInStream    // diff data
 	for q.Len() != 0 || r.Len() != 0 {

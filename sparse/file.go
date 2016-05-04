@@ -77,15 +77,12 @@ type DataInterval struct {
 	Data []byte
 }
 
-// HashSalt is common client/server hash salt
-var HashSalt = []byte("TODO: randomize and exchange between client/server")
-
 // FileReaderGroup starts specified number of readers
-func FileReaderGroup(count int, fileStream <-chan FileInterval, path string, unorderedStream chan<- HashedDataInterval) {
+func FileReaderGroup(count int, salt []byte, fileStream <-chan FileInterval, path string, unorderedStream chan<- HashedDataInterval) {
 	var wgroup sync.WaitGroup
 	wgroup.Add(count)
 	for i := 0; i < count; i++ {
-		go FileReader(fileStream, path, &wgroup, unorderedStream)
+		go FileReader(salt, fileStream, path, &wgroup, unorderedStream)
 	}
 	go func() {
 		wgroup.Wait() // all the readers join here
@@ -105,7 +102,7 @@ func FileWriterGroup(count int, fileStream <-chan DataInterval, path string) *sy
 
 // FileReader supports concurrent file reading
 // multiple readres are allowed
-func FileReader(fileStream <-chan FileInterval, path string, wgroup *sync.WaitGroup, unorderedStream chan<- HashedDataInterval) {
+func FileReader(salt []byte, fileStream <-chan FileInterval, path string, wgroup *sync.WaitGroup, unorderedStream chan<- HashedDataInterval) {
 	// open file
 	file, err := fio.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
@@ -117,9 +114,6 @@ func FileReader(fileStream <-chan FileInterval, path string, wgroup *sync.WaitGr
 		switch r.Kind {
 		case SparseHole:
 			// Process hole
-			// hash := sha1.New()
-			// binary.PutVariant(data, r.Len)
-			// fileHash.Write(data)
 			var hash, data []byte
 			unorderedStream <- HashedDataInterval{HashedInterval{r, hash}, data}
 
@@ -136,7 +130,7 @@ func FileReader(fileStream <-chan FileInterval, path string, wgroup *sync.WaitGr
 				log.Error("File read underrun")
 			}
 			hasher := sha1.New()
-			hasher.Write(HashSalt)
+			hasher.Write(salt)
 			hasher.Write(data)
 			hash := hasher.Sum(nil)
 			unorderedStream <- HashedDataInterval{HashedInterval{r, hash}, data}

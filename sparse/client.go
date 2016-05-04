@@ -8,6 +8,8 @@ import (
 
 	"bytes"
 
+	"encoding/binary"
+
 	fio "github.com/rancher/sparse-tools/directfio"
 	"github.com/rancher/sparse-tools/log"
 )
@@ -53,7 +55,11 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 
 	encoder := gob.NewEncoder(conn)
 	decoder := gob.NewDecoder(conn)
-	status := sendSyncRequest(encoder, decoder, remotePath, size)
+    
+    // Use unix time as hash salt
+	salt := make([]byte, binary.MaxVarintLen64)
+	binary.PutVarint(salt, time.Now().UnixNano())
+	status := sendSyncRequest(encoder, decoder, remotePath, size, salt)
 	if !status {
 		return
 	}
@@ -74,7 +80,7 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	orderedStream := make(chan HashedDataInterval, 128)
 
 	go IntervalSplitter(layoutStream, fileStream)
-	FileReaderGroup(fileReaders, fileStream, localPath, unorderedStream)
+	FileReaderGroup(fileReaders, salt, fileStream, localPath, unorderedStream)
 	go OrderIntervals("src:", unorderedStream, orderedStream)
 
 	// Get remote file intervals and their hashes
@@ -82,7 +88,7 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	netInStreamDone := make(chan bool)
 	go netDstReceiver(decoder, netInStream, netInStreamDone)
 
-	return processDiff(abortStream, errStream, encoder, decoder, orderedStream, netInStream, netInStreamDone, file)
+	return processDiff(salt, abortStream, errStream, encoder, decoder, orderedStream, netInStream, netInStreamDone, file)
 }
 
 func connect(host, port string, timeout int) net.Conn {
@@ -108,7 +114,7 @@ func connect(host, port string, timeout int) net.Conn {
 	return nil
 }
 
-func sendSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, size int64) bool {
+func sendSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, size int64, salt []byte) bool {
 	err := encoder.Encode(requestHeader{requestMagic, syncRequestCode})
 	if err != nil {
 		log.Fatal("Client protocol encoder error:", err)
@@ -120,6 +126,11 @@ func sendSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, si
 		return false
 	}
 	err = encoder.Encode(size)
+	if err != nil {
+		log.Fatal("Client protocol encoder error:", err)
+		return false
+	}
+	err = encoder.Encode(salt)
 	if err != nil {
 		log.Fatal("Client protocol encoder error:", err)
 		return false
@@ -182,7 +193,7 @@ type diffChunk struct {
 	header DataInterval
 }
 
-func processDiff(abortStream chan<- error, errStream <-chan error, encoder *gob.Encoder, decoder *gob.Decoder, local <-chan HashedDataInterval, remote <-chan HashedInterval, netInStreamDone <-chan bool, file *os.File) (hashLocal []byte, err error) {
+func processDiff(salt []byte, abortStream chan<- error, errStream <-chan error, encoder *gob.Encoder, decoder *gob.Decoder, local <-chan HashedDataInterval, remote <-chan HashedInterval, netInStreamDone <-chan bool, file *os.File) (hashLocal []byte, err error) {
 	// Local:   __ _*
 	// Remote:  *_ **
 	hashLocal = make([]byte, 0) // empty hash for errors
@@ -191,7 +202,7 @@ func processDiff(abortStream chan<- error, errStream <-chan error, encoder *gob.
 	netStatus := make(chan netXferStatus)
 	go networkSender(netStream, encoder, netStatus)
 	fileHasher := sha1.New()
-	fileHasher.Write(HashSalt)
+	fileHasher.Write(salt)
 
 	lrange := <-local
 	rrange := <-remote

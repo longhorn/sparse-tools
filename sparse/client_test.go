@@ -550,7 +550,7 @@ func Benchmark_1G_InitFiles(b *testing.B) {
 	layoutRemote := []FileInterval{}
 
 	filesCleanup(localBigPath, remoteBigPath)
-	createTestSparseFile(localBigPath, layoutLocal) 
+	createTestSparseFile(localBigPath, layoutLocal)
 	createTestSparseFile(remoteBigPath, layoutRemote)
 }
 

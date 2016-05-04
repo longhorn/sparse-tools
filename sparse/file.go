@@ -80,8 +80,32 @@ type DataInterval struct {
 // HashSalt is common client/server hash salt
 var HashSalt = []byte("TODO: randomize and exchange between client/server")
 
+// FileReaderGroup starts specified number of readers
+func FileReaderGroup(count int, fileStream <-chan FileInterval, path string, unorderedStream chan<- HashedDataInterval) {
+	var wgroup sync.WaitGroup
+	wgroup.Add(count)
+	for i := 0; i < count; i++ {
+		go FileReader(fileStream, path, &wgroup, unorderedStream)
+	}
+	go func() {
+		wgroup.Wait() // all the readers join here
+		close(unorderedStream)
+	}()
+}
+
+// FileWriterGroup starts specified number of writers
+func FileWriterGroup(count int, fileStream <-chan DataInterval, path string) *sync.WaitGroup {
+	var wgroup sync.WaitGroup
+	wgroup.Add(count)
+	for i := 0; i < count; i++ {
+		go FileWriter(fileStream, path, &wgroup)
+	}
+	return &wgroup
+}
+
 // FileReader supports concurrent file reading
-func FileReader(fileStream <-chan FileInterval, path string, unorderedStream chan<- HashedDataInterval) {
+// multiple readres are allowed
+func FileReader(fileStream <-chan FileInterval, path string, wgroup *sync.WaitGroup, unorderedStream chan<- HashedDataInterval) {
 	// open file
 	file, err := fio.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
@@ -118,7 +142,7 @@ func FileReader(fileStream <-chan FileInterval, path string, unorderedStream cha
 			unorderedStream <- HashedDataInterval{HashedInterval{r, hash}, data}
 		}
 	}
-	close(unorderedStream)
+	wgroup.Done() // indicate to other readers we are done
 }
 
 // FileWriter supports concurrent file reading

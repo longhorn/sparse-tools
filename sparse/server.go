@@ -24,6 +24,8 @@ func TestServer(addr TCPEndPoint, timeout int) {
 	server(addr, true, timeout)
 }
 
+const fileReaders = 1
+const fileWriters = 1
 const verboseServer = true
 
 func server(addr TCPEndPoint, serveOnce /*test flag*/ bool, timeout int) {
@@ -147,7 +149,8 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	netOutDoneStream := make(chan bool)
 
 	netInStream := make(chan DataInterval, 128)
-	fileWrittenStreamDone := make(chan bool)
+	fileWriteStream := make(chan DataInterval, 128)
+	deltaReceiverDoneDone := make(chan bool)
 	checksumStream := make(chan DataInterval, 128)
 	resultStream := make(chan []byte)
 
@@ -160,13 +163,16 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	encoder.Encode(true) // ACK request
 
 	go IntervalSplitter(layoutStream, fileStream)
-	go FileReader(fileStream, path, unorderedStream)
+	FileReaderGroup(fileReaders, fileStream, path, unorderedStream)
 	go OrderIntervals("dst:", unorderedStream, orderedStream)
 	go Tee(orderedStream, netOutStream, checksumStream)
 
 	// Send layout along with data hashes
 	go netSender(netOutStream, encoder, netOutDoneStream)
-	go netReceiver(decoder, file, netInStream, fileWrittenStreamDone) // receiver and checker
+
+	// Start receiving deltas, write those and compute file hash
+	fileWritten := FileWriterGroup(fileWriters, fileWriteStream, path)
+	go netReceiver(decoder, file, netInStream, fileWriteStream, deltaReceiverDoneDone) // receiver and checker
 	go Validator(checksumStream, netInStream, resultStream)
 
 	// Block till completion
@@ -177,7 +183,8 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 		status = false
 	}
 	status = <-netOutDoneStream && status      // done sending dst hashes
-	status = <-fileWrittenStreamDone && status // done writing dst file
+	status = <-deltaReceiverDoneDone && status // done writing dst file
+	fileWritten.Wait()                         // wait for write stream completion
 	hash := <-resultStream                     // done processing diffs
 
 	// reply to client with status
@@ -235,7 +242,7 @@ func netSender(netOutStream <-chan HashedInterval, encoder *gob.Encoder, netOutD
 	netOutDoneStream <- true
 }
 
-func netReceiver(decoder *gob.Decoder, file *os.File, netInStream chan<- DataInterval, fileWrittenStreamDone chan<- bool) {
+func netReceiver(decoder *gob.Decoder, file *os.File, netInStream chan<- DataInterval, fileStream chan<- DataInterval, deltaReceiverDone chan<- bool) {
 	// receive & process data diff
 	status := true
 	for status {
@@ -266,27 +273,15 @@ func netReceiver(decoder *gob.Decoder, file *os.File, netInStream chan<- DataInt
 				status = false
 				break
 			}
-			// Push for vaildator processing
+			// Push for writing and vaildator processing
+			fileStream <- DataInterval{delta, data}
 			netInStream <- DataInterval{delta, data}
 
-			log.Debug("writing data...")
-			_, err = fio.WriteAt(file, data, delta.Begin)
-			if err != nil {
-				log.Error("Failed to write file")
-				status = false
-				break
-			}
 		case SparseHole:
-			// Push for vaildator processing
+			// Push for writing and vaildator processing
+			fileStream <- DataInterval{delta, make([]byte, 0)}
 			netInStream <- DataInterval{delta, make([]byte, 0)}
 
-			log.Debug("trimming...")
-			err := PunchHole(file, delta.Interval)
-			if err != nil {
-				log.Error("Failed to trim file")
-				status = false
-				break
-			}
 		case SparseIgnore:
 			// Push for vaildator processing
 			netInStream <- DataInterval{delta, make([]byte, 0)}
@@ -296,7 +291,8 @@ func netReceiver(decoder *gob.Decoder, file *os.File, netInStream chan<- DataInt
 
 	log.Debug("Server.netReceiver done, sync")
 	close(netInStream)
-	fileWrittenStreamDone <- status
+	close(fileStream)
+	deltaReceiverDone <- status
 }
 
 func logData(prefix string, data []byte) {

@@ -6,9 +6,9 @@ import (
 	"os"
 	"strconv"
 
+	"bytes"
 	fio "github.com/rancher/sparse-tools/directfio"
 	"github.com/rancher/sparse-tools/log"
-	"bytes"
 )
 
 import "encoding/gob"
@@ -73,7 +73,7 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	orderedStream := make(chan HashedDataInterval, 128)
 
 	go IntervalSplitter(layoutStream, fileStream)
-	go FileReader(fileStream, localPath, unorderedStream)
+	FileReaderGroup(fileReaders, fileStream, localPath, unorderedStream)
 	go OrderIntervals("src:", unorderedStream, orderedStream)
 
 	// Get remote file intervals and their hashes
@@ -258,8 +258,7 @@ func processDiff(abortStream chan<- error, errStream <-chan error, encoder *gob.
 			rrange = <-remote
 		} else {
 			// Should never happen
-			log.Fatal("internal error")
-			err = errors.New("internal error")
+			log.Fatal("processDiff internal error")
 			return
 		}
 	}
@@ -321,7 +320,7 @@ func processDiff(abortStream chan<- error, errStream <-chan error, encoder *gob.
 }
 
 func isHashDifferent(a, b []byte) bool {
-    return !bytes.Equal(a, b)
+	return !bytes.Equal(a, b)
 }
 
 func processFileInterval(local HashedDataInterval, remote HashedInterval, netStream chan<- diffChunk) {

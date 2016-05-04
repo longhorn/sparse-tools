@@ -55,8 +55,8 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 
 	encoder := gob.NewEncoder(conn)
 	decoder := gob.NewDecoder(conn)
-    
-    // Use unix time as hash salt
+
+	// Use unix time as hash salt
 	salt := make([]byte, binary.MaxVarintLen64)
 	binary.PutVarint(salt, time.Now().UnixNano())
 	status := sendSyncRequest(encoder, decoder, remotePath, size, salt)

@@ -44,7 +44,10 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 		if err != nil {
 			if _, ok := err.(*HashCollsisionError); ok {
 				// retry on HahsCollisionError
+				log.Warn("SSync: retrying on chunk hash collision...")
 				continue
+			} else {
+				log.Error("SSync error:", err)
 			}
 		}
 		break
@@ -327,16 +330,24 @@ func processDiff(salt []byte, abortStream chan<- error, errStream <-chan error, 
 
 	// Compare file hashes
 	hashLocal = fileHasher.Sum(nil)
-	if isHashDifferent(hashLocal, hashRemote) {
+	if isHashDifferent(hashLocal, hashRemote) || FailPointFileHashMatch() {
 		log.Warn("hashLocal =", hashLocal)
 		log.Warn("hashRemote=", hashRemote)
 		err = &HashCollsisionError{}
 	} else {
-		retry = false // don't retry on
+		retry = false // success, don't retry anymore
 	}
-	err = encoder.Encode(retry)
-	if err != nil {
-		log.Fatal("Cient protocol remote retry error:", err)
+
+	// Final retry negotiation
+	{
+		err1 := encoder.Encode(retry)
+		if err1 != nil {
+			log.Fatal("Cient protocol remote retry error:", err)
+		}
+		err1 = decoder.Decode(&statusRemote)
+		if err1 != nil {
+			log.Fatal("Cient protocol remote retry status error:", err)
+		}
 	}
 	return
 }

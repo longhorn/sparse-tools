@@ -56,9 +56,10 @@ func server(addr TCPEndPoint, serveOnce /*test flag*/ bool, timeout int) {
 			if serveConnection(conn) {
 				break // no retries
 			}
+            log.Warn("Server: waiting for client sync retry...")
+		} else {
+			go serveConnection(conn)
 		}
-
-		go serveConnection(conn)
 	}
 	log.Info("Sync server exit.")
 }
@@ -114,7 +115,7 @@ func serveConnection(conn net.Conn) bool {
 		encoder := gob.NewEncoder(conn)
 		return serveSyncRequest(encoder, decoder, path, size, salt)
 	}
-    return true
+	return true
 }
 
 // returns true if no retry is necessary
@@ -210,14 +211,19 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 		log.Fatal("Protocol encoder error:", err)
 		return true
 	}
-    
-    var retry bool
-    err = decoder.Decode(&retry)
+
+	var retry bool
+	err = decoder.Decode(&retry)
 	if err != nil {
 		log.Fatal("Protocol retry decoder error:", err)
 		return true
 	}
-    return !retry // don't terminate server if retry expected
+	encoder.Encode(true) // ACK retry
+	if err != nil {
+		log.Fatal("Protocol retry encoder error:", err)
+		return true
+	}
+	return !retry // don't terminate server if retry expected
 }
 
 // Tee ordered intervals into the network and checksum checker

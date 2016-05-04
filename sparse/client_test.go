@@ -522,9 +522,9 @@ func TestSyncFileHashRetry(t *testing.T) {
 		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
 	}
 	layoutRemote := []FileInterval{}
-    
-    // Simulate file hash mismatch
-    SetFailPointFileHashMatch(true)
+
+	// Simulate file hash mismatch
+	SetFailPointFileHashMatch(true)
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 

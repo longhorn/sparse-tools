@@ -56,7 +56,7 @@ func server(addr TCPEndPoint, serveOnce /*test flag*/ bool, timeout int) {
 			if serveConnection(conn) {
 				break // no retries
 			}
-            log.Warn("Server: waiting for client sync retry...")
+			log.Warn("Server: waiting for client sync retry...")
 		} else {
 			go serveConnection(conn)
 		}

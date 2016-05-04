@@ -11,7 +11,7 @@ func TestOrdering1(t *testing.T) {
 	intervals := []Interval{
 		{0, 1},
 	}
-    testOrdering(t, intervals)
+	testOrdering(t, intervals)
 }
 
 func TestOrdering2(t *testing.T) {
@@ -19,7 +19,7 @@ func TestOrdering2(t *testing.T) {
 		{0, 1},
 		{1, 2},
 	}
-    testOrdering(t, intervals)
+	testOrdering(t, intervals)
 }
 
 func TestOrdering3(t *testing.T) {
@@ -27,7 +27,7 @@ func TestOrdering3(t *testing.T) {
 		{1, 2},
 		{0, 1},
 	}
-    testOrdering(t, intervals)
+	testOrdering(t, intervals)
 }
 
 func TestOrdering4(t *testing.T) {
@@ -39,7 +39,7 @@ func TestOrdering4(t *testing.T) {
 		{2, 3},
 		{4, 5},
 	}
-    testOrdering(t, intervals)
+	testOrdering(t, intervals)
 }
 
 func testOrdering(t *testing.T, intervals []Interval) {
@@ -50,14 +50,14 @@ func testOrdering(t *testing.T, intervals []Interval) {
 	unorderedStream := make(chan HashedDataInterval, 128)
 	orderedStream := make(chan HashedDataInterval, 128)
 
-	for _, i := range intervals {       
+	for _, i := range intervals {
 		interval := Interval{i.Begin * Blocks, i.End * Blocks}
 		hdi := HashedDataInterval{HashedInterval{FileInterval{SparseHole, interval}, make([]byte, 0)}, make([]byte, 0)}
 		log.Debug("in:   ", hdi)
 		unorderedStream <- hdi
 	}
 	close(unorderedStream)
-	checkOrderedStream(t, "test  ", unorderedStream, orderedStream)    
+	checkOrderedStream(t, "test  ", unorderedStream, orderedStream)
 }
 
 func TestRandomOrdering(t *testing.T) {
@@ -94,7 +94,7 @@ func TestRandomOrdering(t *testing.T) {
 		close(unorderedStream)
 	}()
 
-    checkOrderedStream(t, "test  ", unorderedStream, orderedStream)
+	checkOrderedStream(t, "test  ", unorderedStream, orderedStream)
 }
 
 func checkOrderedStream(t *testing.T, prefix string, unorderedStream <-chan HashedDataInterval, orderedStream chan HashedDataInterval) {
@@ -108,5 +108,5 @@ func checkOrderedStream(t *testing.T, prefix string, unorderedStream <-chan Hash
 			t.Fatal("interval order violation", interval, "@", pos/Blocks)
 		}
 		pos = interval.End
-	}    
+	}
 }

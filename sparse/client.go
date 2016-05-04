@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"bytes"
+
 	fio "github.com/rancher/sparse-tools/directfio"
 	"github.com/rancher/sparse-tools/log"
 )
@@ -189,16 +190,6 @@ func processDiff(abortStream chan<- error, errStream <-chan error, encoder *gob.
 	netStream := make(chan diffChunk, 128)
 	netStatus := make(chan netXferStatus)
 	go networkSender(netStream, encoder, netStatus)
-	// fileStream := make(chan fileChunk, 128)
-	// fileStatus := make(chan bool)
-	// for i := 0; i < concurrentReaders; i++ {
-	// 	if 0 == i {
-	// 		go fileReader(i, file, fileStream, netStream, fileStatus)
-	// 	} else {
-	// 		f, _ := os.Open(file.Name())
-	// 		go fileReader(i, f, fileStream, netStream, fileStatus)
-	// 	}
-	// }
 	fileHasher := sha1.New()
 	fileHasher.Write(HashSalt)
 
@@ -263,12 +254,6 @@ func processDiff(abortStream chan<- error, errStream <-chan error, encoder *gob.
 		}
 	}
 	log.Info("Finished processing file diff")
-
-	// // stop file readers
-	// for i := 0; i < concurrentReaders; i++ {
-	// 	fileStream <- fileChunk{true, FileInterval{SparseHole, Interval{0, 0}}}
-	// 	<-fileStatus // wait for reader completion
-	// }
 
 	status := true
 	err = <-errStream
@@ -435,44 +420,4 @@ func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus c
 		}
 	}
 	netStatus <- netXferStatus{status, byteCount}
-}
-
-// obsolete method
-func fileReader(id int, file *os.File, fileStream <-chan fileChunk, netStream chan<- diffChunk, fileStatus chan<- bool) {
-	idBeg := map[int]string{0: "a", 1: "b", 2: "c", 3: "d"}
-	idEnd := map[int]string{0: "A", 1: "B", 2: "C", 3: "D"}
-	for {
-		chunk := <-fileStream
-		if chunk.eof {
-			break
-		}
-		if traceChannelLoad {
-			fmt.Fprint(os.Stderr, len(fileStream), idBeg[id])
-		}
-		// Check interval type
-		r := chunk.header
-		if SparseData != r.Kind {
-			log.Fatal("internal error: noles should be send directly to netStream")
-		}
-
-		// Read file data
-		data := make([]byte, r.Len())
-		status := true
-		n, err := fio.ReadAt(file, data, r.Begin)
-		if err != nil {
-			log.Error("File read error")
-			status = false
-		} else if int64(n) != r.Len() {
-			log.Error("File read underrun")
-			status = false
-		}
-
-		// Send file data
-		if traceChannelLoad {
-			fmt.Fprint(os.Stderr, idEnd[id])
-		}
-		netStream <- diffChunk{status, DataInterval{r, data}}
-	}
-	log.Info("Finished reading file")
-	fileStatus <- true
 }

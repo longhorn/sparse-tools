@@ -4,9 +4,10 @@ import (
 	"os"
 	"syscall"
 
+	"fmt"
+
 	"github.com/frostschutz/go-fibmap"
 	"github.com/rancher/sparse-tools/log"
-	"fmt"
 )
 
 // Interval [Begin, End) is non-inclusive at the End
@@ -42,14 +43,14 @@ type FileInterval struct {
 
 func (i FileInterval) String() string {
 	kind := "?"
-    switch i.Kind {
-    case SparseData:
+	switch i.Kind {
+	case SparseData:
 		kind = "D"
-    case SparseHole:
+	case SparseHole:
 		kind = " "
-    case SparseIgnore:
-		kind = "i"        
-    }
+	case SparseIgnore:
+		kind = "i"
+	}
 	return fmt.Sprintf("%s%v", kind, i.Interval)
 }
 

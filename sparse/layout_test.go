@@ -158,7 +158,7 @@ func layoutTest(t *testing.T, name string, layoutModel, layoutExpected []FileInt
 func punchHoleTest(t *testing.T, name string, layoutModel []FileInterval, hole Interval, layoutExpected []FileInterval) {
 	createTestSparseFile(name, layoutModel)
 
-    defer fileCleanup(name)
+	defer fileCleanup(name)
 	f, err := os.OpenFile(name, os.O_RDWR, 0)
 	if err != nil {
 		t.Fatal(err)

@@ -502,6 +502,20 @@ func TestSyncHash2(t *testing.T) {
 	}
 }
 
+func TestSyncHashSalt(t *testing.T) {
+	var hash1, hash2 []byte
+	layoutLocal := []FileInterval{
+		{SparseData, Interval{0, 1 * Blocks}},
+		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+	}
+	layoutRemote := []FileInterval{}
+	hash1 = testSyncFile(t, layoutLocal, layoutRemote)
+	hash2 = testSyncFile(t, layoutLocal, layoutRemote)
+	if !isHashDifferent(hash1, hash2) {
+		t.Fatal("Files with same data content but different salts should have unique hashes")
+	}
+}
+
 func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) (hashLocal []byte) {
 	localPath := tempFilePath("ssync-src-")
 	remotePath := tempFilePath("ssync-dst-")

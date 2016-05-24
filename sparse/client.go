@@ -70,6 +70,8 @@ func syncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 		return
 	}
 
+	SetupFileIO(size%Blocks == 0)
+
 	conn := connect(addr.Host, strconv.Itoa(int(addr.Port)), timeout)
 	if nil == conn {
 		log.Error("Failed to connect to", addr)
@@ -112,7 +114,7 @@ func syncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	netInStreamDone := make(chan bool)
 	go netDstReceiver(decoder, netInStream, netInStreamDone)
 
-	return processDiff(salt, abortStream, errStream, encoder, decoder, orderedStream, netInStream, netInStreamDone, file, retry)
+	return processDiff(salt, abortStream, errStream, encoder, decoder, orderedStream, netInStream, netInStreamDone, retry)
 }
 
 func connect(host, port string, timeout int) net.Conn {
@@ -217,7 +219,7 @@ type diffChunk struct {
 	header DataInterval
 }
 
-func processDiff(salt []byte, abortStream chan<- error, errStream <-chan error, encoder *gob.Encoder, decoder *gob.Decoder, local <-chan HashedDataInterval, remote <-chan HashedInterval, netInStreamDone <-chan bool, file *os.File, retry bool) (hashLocal []byte, err error) {
+func processDiff(salt []byte, abortStream chan<- error, errStream <-chan error, encoder *gob.Encoder, decoder *gob.Decoder, local <-chan HashedDataInterval, remote <-chan HashedInterval, netInStreamDone <-chan bool, retry bool) (hashLocal []byte, err error) {
 	// Local:   __ _*
 	// Remote:  *_ **
 	hashLocal = make([]byte, 0) // empty hash for errors

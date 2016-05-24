@@ -12,6 +12,36 @@ import (
 	"github.com/rancher/sparse-tools/log"
 )
 
+// File I/O methods for direct or bufferend I/O
+var fileOpen func(name string, flag int, perm os.FileMode) (*os.File, error)
+var fileReadAt func(file *os.File, data []byte, offset int64) (int, error)
+var fileWriteAt func(file *os.File, data []byte, offset int64) (int, error)
+
+func fileBufferedOpen(name string, flag int, perm os.FileMode) (*os.File, error) {
+	return os.OpenFile(name, flag, perm)
+}
+func fileBufferedReadAt(file *os.File, data []byte, offset int64) (int, error) {
+	return file.ReadAt(data, offset)
+}
+func fileBufferedWriteAt(file *os.File, data []byte, offset int64) (int, error) {
+	return file.WriteAt(data, offset)
+}
+
+// SetupFileIO Sets up direct file I/O or buffered for small unaligned files
+func SetupFileIO(direct bool) {
+	if direct {
+		fileOpen = fio.OpenFile
+		fileReadAt = fio.ReadAt
+		fileWriteAt = fio.WriteAt
+		log.Info("Mode: directfio")
+	} else {
+		fileOpen = fileBufferedOpen
+		fileReadAt = fileBufferedReadAt
+		fileWriteAt = fileBufferedWriteAt
+		log.Info("Mode: buffered")
+	}
+}
+
 func loadFileLayout(abortStream <-chan error, file *os.File, layoutStream chan<- FileInterval, errStream chan<- error) error {
 	size, err := file.Seek(0, os.SEEK_END)
 	if err != nil {
@@ -104,7 +134,7 @@ func FileWriterGroup(count int, fileStream <-chan DataInterval, path string) *sy
 // multiple readres are allowed
 func FileReader(salt []byte, fileStream <-chan FileInterval, path string, wgroup *sync.WaitGroup, unorderedStream chan<- HashedDataInterval) {
 	// open file
-	file, err := fio.OpenFile(path, os.O_RDONLY, 0)
+	file, err := fileOpen(path, os.O_RDONLY, 0)
 	if err != nil {
 		log.Fatal("Failed to open file for reading:", string(path), err)
 	}
@@ -121,7 +151,7 @@ func FileReader(salt []byte, fileStream <-chan FileInterval, path string, wgroup
 			// Read file data
 			data := make([]byte, r.Len())
 			status := true
-			n, err := fio.ReadAt(file, data, r.Begin)
+			n, err := fileReadAt(file, data, r.Begin)
 			if err != nil {
 				status = false
 				log.Error("File read error", status)
@@ -143,7 +173,7 @@ func FileReader(salt []byte, fileStream <-chan FileInterval, path string, wgroup
 // add this writer to wgroup before invoking
 func FileWriter(fileStream <-chan DataInterval, path string, wgroup *sync.WaitGroup) {
 	// open file
-	file, err := fio.OpenFile(path, os.O_WRONLY, 0)
+	file, err := fileOpen(path, os.O_WRONLY, 0)
 	if err != nil {
 		log.Fatal("Failed to open file for wroting:", string(path), err)
 	}
@@ -160,7 +190,7 @@ func FileWriter(fileStream <-chan DataInterval, path string, wgroup *sync.WaitGr
 
 		case SparseData:
 			log.Debug("writing data...")
-			_, err = fio.WriteAt(file, r.Data, r.Begin)
+			_, err = fileWriteAt(file, r.Data, r.Begin)
 			if err != nil {
 				log.Fatal("Failed to write file")
 			}

@@ -131,3 +131,28 @@ func checkTestSparseFile(name string, layout []FileInterval) error {
 	}
 	return nil // success
 }
+
+func createTestSmallFile(name string, size int, pattern []byte) {
+	f, err := os.Create(name)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	if size == 0 {
+		return // empty file
+	}
+
+	// Fill up data
+	for offset := 0; offset < size; offset += len(pattern) {
+		if offset+len(pattern) > size {
+			pattern = pattern[:size-len(pattern)]
+		}
+		_, err := f.Write(pattern)
+		if err != nil {
+			log.Fatal("File write error:", err)
+		}
+	}
+
+	f.Sync()
+}

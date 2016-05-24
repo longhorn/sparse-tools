@@ -10,23 +10,96 @@ const localhost = "127.0.0.1"
 const timeout = 5 //seconds
 var remoteAddr = TCPEndPoint{localhost, 5000}
 
+func TestSyncSmallFile1(t *testing.T) {
+	localPath := tempFilePath("ssync-small-src-")
+	remotePath := tempFilePath("ssync-small-dst-")
+
+	// Only log errors
+	log.LevelPush(log.LevelWarn)
+	defer log.LevelPop()
+
+	filesCleanup(localPath, remotePath)
+	defer filesCleanup(localPath, remotePath)
+
+	data := []byte("json-fault")
+	createTestSmallFile(localPath, len(data), data)
+	testSyncAnyFile(t, localPath, remotePath)
+}
+
+func TestSyncSmallFile2(t *testing.T) {
+	localPath := tempFilePath("ssync-small-src-")
+	remotePath := tempFilePath("ssync-small-dst-")
+
+	// Only log errors
+	// log.LevelPush(log.LevelWarn)
+	// defer log.LevelPop()
+
+	filesCleanup(localPath, remotePath)
+	defer filesCleanup(localPath, remotePath)
+
+	data := []byte("json-fault")
+	data1 := []byte("json")
+	createTestSmallFile(localPath, len(data), data)
+	createTestSmallFile(remotePath, len(data1), data1)
+	testSyncAnyFile(t, localPath, remotePath)
+}
+
+func TestSyncSmallFile3(t *testing.T) {
+	localPath := tempFilePath("ssync-small-src-")
+	remotePath := tempFilePath("ssync-small-dst-")
+
+	// Only log errors
+	log.LevelPush(log.LevelWarn)
+	defer log.LevelPop()
+
+	filesCleanup(localPath, remotePath)
+	defer filesCleanup(localPath, remotePath)
+
+	data := []byte("json-fault")
+	createTestSmallFile(localPath, len(data), data)
+	createTestSmallFile(remotePath, len(data), data)
+	testSyncAnyFile(t, localPath, remotePath)
+}
+
+func TestSyncSmallFile4(t *testing.T) {
+	localPath := tempFilePath("ssync-small-src-")
+	remotePath := tempFilePath("ssync-small-dst-")
+
+	// Only log errors
+	log.LevelPush(log.LevelWarn)
+	defer log.LevelPop()
+
+	filesCleanup(localPath, remotePath)
+	defer filesCleanup(localPath, remotePath)
+
+	data := []byte("json-fault")
+	createTestSmallFile(localPath, 0, make([]byte, 0))
+	createTestSmallFile(remotePath, len(data), data)
+	testSyncAnyFile(t, localPath, remotePath)
+}
+
 func TestSyncAnyFile(t *testing.T) {
 	src := "src.bar"
 	dst := "dst.bar"
 	run := false
-
+	// ad hoc test for testing specific problematic files
+	// disabled by default
 	if run {
-		// Sync
-		go TestServer(remoteAddr, timeout)
-		_, err := SyncFile(src, remoteAddr, dst, timeout)
+		testSyncAnyFile(t, src, dst)
+	}
+}
 
-		// Verify
-		if err != nil {
-			t.Fatal("sync error")
-		}
-		if !filesAreEqual(src, dst) {
-			t.Fatal("file content diverged")
-		}
+func testSyncAnyFile(t *testing.T, src, dst string) {
+	// Sync
+	go TestServer(remoteAddr, timeout)
+	_, err := SyncFile(src, remoteAddr, dst, timeout)
+
+	// Verify
+	if err != nil {
+		t.Fatal("sync error")
+	}
+	if !filesAreEqual(src, dst) {
+		t.Fatal("file content diverged")
 	}
 }
 

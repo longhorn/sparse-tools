@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"time"
 
-	fio "github.com/rancher/sparse-tools/directfio"
 	"github.com/rancher/sparse-tools/log"
 )
 
@@ -120,9 +119,11 @@ func serveConnection(conn net.Conn) bool {
 
 // returns true if no retry is necessary
 func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, size int64, salt []byte) bool {
+	directFileIO := size%Blocks == 0
+	SetupFileIO(directFileIO)
 
 	// Open destination file
-	file, err := fio.OpenFile(path, os.O_RDWR, 0666)
+	file, err := fileOpen(path, os.O_RDWR, 0666)
 	if err != nil {
 		file, err = os.Create(path)
 		if err != nil {
@@ -130,6 +131,10 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 			encoder.Encode(false) // NACK request
 			return true
 		}
+	}
+	// Setup close sequence
+	if directFileIO {
+		defer file.Sync()
 	}
 	defer file.Close()
 
@@ -141,7 +146,7 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	}
 
 	// open file
-	fileRO, err := fio.OpenFile(path, os.O_RDONLY, 0)
+	fileRO, err := fileOpen(path, os.O_RDONLY, 0)
 	if err != nil {
 		log.Error("Failed to open file for reading:", string(path), err)
 		encoder.Encode(false) // NACK request

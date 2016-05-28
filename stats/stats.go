@@ -17,9 +17,12 @@ const (
 type SampleOp int
 
 const (
-	OpRead  = SampleOp(0)
+	// OpRead read from replica
+	OpRead = SampleOp(0)
+	// OpWrite write to replica
 	OpWrite = SampleOp(1)
-	OpPing  = SampleOp(2)
+	// OpPing ping replica
+	OpPing = SampleOp(2)
 )
 
 type dataPoint struct {

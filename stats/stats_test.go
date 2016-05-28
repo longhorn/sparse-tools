@@ -102,3 +102,55 @@ func Test4(t *testing.T) {
 		t.Fatal("sample mismatch:", samples)
 	}
 }
+
+func Test5(t *testing.T) {
+	log.LevelPush(log.LevelInfo)
+	defer log.LevelPop()
+	resetStats(4)
+
+	Sample(time.Now(), time.Duration(1000), 0, OpRead, 1024)
+	var pending []OpID
+	pending = append(pending, InsertPendingOp(time.Now(), 0, OpRead, 2048))
+	pending = append(pending, InsertPendingOp(time.Now(), 0, OpWrite, 4096))
+	err := RemovePendingOp(pending[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	<-Print()
+
+	err = RemovePendingOp(pending[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func Test6(t *testing.T) {
+	log.LevelPush(log.LevelInfo)
+	defer log.LevelPop()
+	resetStats(4)
+
+	Sample(time.Now(), time.Duration(1000), 0, OpRead, 1024)
+	var pending []OpID
+	pending = append(pending, InsertPendingOp(time.Now(), 0, OpRead, 2048))
+	pending = append(pending, InsertPendingOp(time.Now(), 0, OpWrite, 4096))
+	err := RemovePendingOp(pending[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending = append(pending, InsertPendingOp(time.Now(), 0, OpPing, 8192))
+
+	<-Process(appendSample)
+	if !verifySampleDurations([]int{1000, 0, 0}) {
+		t.Fatal("sample mismatch:", samples)
+	}
+
+	err = RemovePendingOp(pending[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RemovePendingOp(pending[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+}

@@ -17,9 +17,9 @@ const (
 type SampleOp int
 
 const (
-	opRead  = SampleOp(0)
-	opWrite = SampleOp(1)
-	opPing  = SampleOp(2)
+	OpRead  = SampleOp(0)
+	OpWrite = SampleOp(1)
+	OpPing  = SampleOp(2)
 )
 
 type dataPoint struct {
@@ -33,11 +33,11 @@ type dataPoint struct {
 // String conversions
 func (op SampleOp) String() string {
 	switch op {
-	case opRead:
+	case OpRead:
 		return "R"
-	case opWrite:
+	case OpWrite:
 		return "W"
-	case opPing:
+	case OpPing:
 		return "P"
 	}
 	return "<unknown op>"

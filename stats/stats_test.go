@@ -42,8 +42,8 @@ func Test1(t *testing.T) {
 	defer log.LevelPop()
 	resetStats(4)
 
-	Sample(time.Now(), time.Duration(1000), 0, opRead, 1024)
-	Sample(time.Now(), time.Duration(2000), 0, opRead, 1024)
+	Sample(time.Now(), time.Duration(1000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(2000), 0, OpRead, 1024)
 
 	<-Process(appendSample)
 	if !verifySampleDurations([]int{1000, 2000}) {
@@ -56,8 +56,8 @@ func Test2(t *testing.T) {
 	defer log.LevelPop()
 	resetStats(4)
 
-	Sample(time.Now(), time.Duration(1000), 0, opRead, 1024)
-	Sample(time.Now(), time.Duration(2000), 0, opRead, 1024)
+	Sample(time.Now(), time.Duration(1000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(2000), 0, OpRead, 1024)
 
 	<-Print()
 }
@@ -67,11 +67,11 @@ func Test3(t *testing.T) {
 	defer log.LevelPop()
 	resetStats(4)
 
-	Sample(time.Now(), time.Duration(1000), 0, opRead, 1024)
-	Sample(time.Now(), time.Duration(2000), 0, opRead, 1024)
-	Sample(time.Now(), time.Duration(3000), 0, opRead, 1024)
-	Sample(time.Now(), time.Duration(4000), 0, opRead, 1024)
-	Sample(time.Now(), time.Duration(5000), 0, opRead, 1024)
+	Sample(time.Now(), time.Duration(1000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(2000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(3000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(4000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(5000), 0, OpRead, 1024)
 
 	<-Process(appendSample)
 	if !verifySampleDurations([]int{2000, 3000, 4000, 5000}) {
@@ -84,18 +84,18 @@ func Test4(t *testing.T) {
 	defer log.LevelPop()
 	resetStats(4)
 
-	Sample(time.Now(), time.Duration(1000), 0, opRead, 1024)
-	Sample(time.Now(), time.Duration(2000), 0, opRead, 1024)
-	Sample(time.Now(), time.Duration(3000), 0, opRead, 1024)
-	Sample(time.Now(), time.Duration(4000), 0, opRead, 1024)
-	Sample(time.Now(), time.Duration(5000), 0, opRead, 1024)
+	Sample(time.Now(), time.Duration(1000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(2000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(3000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(4000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(5000), 0, OpRead, 1024)
 
 	<-Process(appendSample)
 	if !verifySampleDurations([]int{2000, 3000, 4000, 5000}) {
 		t.Fatal("sample mismatch:", samples)
 	}
 
-	Sample(time.Now(), time.Duration(6000), 0, opRead, 1024)
+	Sample(time.Now(), time.Duration(6000), 0, OpRead, 1024)
 
 	<-Process(appendSample)
 	if !verifySampleDurations([]int{6000}) {

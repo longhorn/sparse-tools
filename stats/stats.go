@@ -17,9 +17,12 @@ const (
 type SampleOp int
 
 const (
-	opRead  = SampleOp(0)
-	opWrite = SampleOp(1)
-	opPing  = SampleOp(2)
+	// OpRead read from replica
+	OpRead = SampleOp(0)
+	// OpWrite write to replica
+	OpWrite = SampleOp(1)
+	// OpPing ping replica
+	OpPing = SampleOp(2)
 )
 
 type dataPoint struct {
@@ -33,11 +36,11 @@ type dataPoint struct {
 // String conversions
 func (op SampleOp) String() string {
 	switch op {
-	case opRead:
+	case OpRead:
 		return "R"
-	case opWrite:
+	case OpWrite:
 		return "W"
-	case opPing:
+	case OpPing:
 		return "P"
 	}
 	return "<unknown op>"

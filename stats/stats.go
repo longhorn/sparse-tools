@@ -6,10 +6,10 @@ import (
 
 	"errors"
 
+	"sync"
+
 	"github.com/rancher/sparse-tools/log"
 )
-
-import "sync"
 
 const (
 	defaultBufferSize = 100 * 1000 // sample buffer size (cyclic)
@@ -59,19 +59,12 @@ func (sample dataPoint) String() string {
 
 var (
 	bufferSize = defaultBufferSize
-	data       []dataPoint
-	mutex      sync.Mutex
-	head       = 0 // next sample index
-	length     = 0
-	unreported = 0 // count of not yet reported/processed samples
+	cdata      = make(chan dataPoint, defaultBufferSize)
 )
 
 func initStats(size int) {
 	bufferSize = size
-	data = make([]dataPoint, size)
-	head = 0
-	length = 0
-	unreported = 0
+	cdata = make(chan dataPoint, bufferSize)
 	log.Debug("Stats.init=", size)
 }
 
@@ -79,22 +72,16 @@ func init() {
 	initStats(bufferSize)
 }
 
-func wrapIndex(pos int) int {
-	return (pos + bufferSize) % bufferSize
-}
-
 func storeSample(sample dataPoint) {
-	mutex.Lock()
-	log.Debug("Stats.sample[", head, "]=", sample)
-	if length < bufferSize {
-		length++
+	//Maintain non-blocking state
+	for {
+		select {
+		case cdata <- sample:
+			return
+		default:
+			<-cdata
+		}
 	}
-	if unreported < bufferSize {
-		unreported++
-	}
-	data[head] = sample
-	head = wrapIndex(head + 1)
-	mutex.Unlock()
 }
 
 // Sample to the cyclic buffer
@@ -105,33 +92,24 @@ func Sample(timestamp time.Time, duration time.Duration, target int, op SampleOp
 // Process unreported samples
 func Process(processor func(dataPoint)) chan struct{} {
 	// Fetch unreported window
-	mutex.Lock()
-	items := unreported
-	unreported = 0
-	log.Debug("Stats.Processing unreported=", items)
-	i := wrapIndex(head - items)
-	dataCopy := make([]dataPoint, items)
-	if i+items <= bufferSize {
-		copy(dataCopy, data[i:i+items])
-	} else {
-		copy(dataCopy, data[i:])
-		items -= bufferSize - i
-		copy(dataCopy[bufferSize-i:], data[:items])
-	}
-	mutex.Unlock()
-
 	done := make(chan struct{})
-	go func(data, pending []dataPoint, done chan struct{}) {
-		for _, sample := range data {
-			log.Debug("Stats.Processing=", sample)
-			processor(sample)
+	go func(pending []dataPoint, done chan struct{}) {
+	samples:
+		for {
+			select {
+			case sample := <-cdata:
+				log.Debug("Stats.Processing=", sample)
+				processor(sample)
+			default:
+				break samples
+			}
 		}
 		for _, sample := range pending {
 			log.Debug("Stats.Processing pending=", sample)
 			processor(sample)
 		}
 		close(done)
-	}(dataCopy, getPendingOps(), done)
+	}(getPendingOps(), done)
 	return done
 }
 

@@ -2,6 +2,7 @@ package stats
 
 import (
 	"io/ioutil"
+	"sync"
 	"testing"
 	"time"
 
@@ -153,4 +154,29 @@ func Test6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func benchmark(store func(sample dataPoint), fibers int, b *testing.B) {
+	var sample dataPoint
+	wg := &sync.WaitGroup{}
+	for i := 0; i < fibers; i++ {
+		wg.Add(1)
+		go func() {
+			for run := 0; run < b.N; run++ {
+				store(sample)
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+}
+
+func Benchmark_C1(b *testing.B) {
+	benchmark(storeSample, 1, b)
+}
+func Benchmark_C10(b *testing.B) {
+	benchmark(storeSample, 10, b)
+}
+func Benchmark_C100(b *testing.B) {
+	benchmark(storeSample, 100, b)
 }

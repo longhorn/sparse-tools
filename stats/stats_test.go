@@ -27,11 +27,20 @@ func appendSample(sample dataPoint) {
 	samples <- sample
 }
 
-func verifySampleDurations(model []int) bool {
-	for _, expected := range model {
+type model struct {
+	duration, size int
+	durationIgnore bool
+}
+
+func verifySampleDurations(m []model) bool {
+	for _, expected := range m {
 		sample := <-samples
-		if sample.duration != time.Duration(expected) {
-			log.Error("queue mismatch; expected=", sample.duration, "actual=", time.Duration(expected))
+		if !expected.durationIgnore && sample.duration != time.Duration(expected.duration) {
+			log.Error("queue duration mismatch; expected=", sample.duration, "actual=", time.Duration(expected.duration))
+			return false
+		}
+		if sample.size != expected.size {
+			log.Error("queue size mismatch; expected=", sample.size, "actual=", expected.size)
 			return false
 		}
 	}
@@ -47,7 +56,7 @@ func Test1(t *testing.T) {
 	Sample(time.Now(), time.Duration(2000), 0, OpRead, 1024)
 
 	<-Process(appendSample)
-	if !verifySampleDurations([]int{1000, 2000}) {
+	if !verifySampleDurations([]model{{1000, 1024, false}, {2000, 1024, false}}) {
 		t.Fatal("sample mismatch:", samples)
 	}
 }
@@ -75,7 +84,7 @@ func Test3(t *testing.T) {
 	Sample(time.Now(), time.Duration(5000), 0, OpRead, 1024)
 
 	<-Process(appendSample)
-	if !verifySampleDurations([]int{2000, 3000, 4000, 5000}) {
+	if !verifySampleDurations([]model{{2000, 1024, false}, {3000, 1024, false}, {4000, 1024, false}, {5000, 1024, false}}) {
 		t.Fatal("sample mismatch:", samples)
 	}
 }
@@ -92,14 +101,14 @@ func Test4(t *testing.T) {
 	Sample(time.Now(), time.Duration(5000), 0, OpRead, 1024)
 
 	<-Process(appendSample)
-	if !verifySampleDurations([]int{2000, 3000, 4000, 5000}) {
+	if !verifySampleDurations([]model{{2000, 1024, false}, {3000, 1024, false}, {4000, 1024, false}, {5000, 1024, false}}) {
 		t.Fatal("sample mismatch:", samples)
 	}
 
 	Sample(time.Now(), time.Duration(6000), 0, OpRead, 1024)
 
 	<-Process(appendSample)
-	if !verifySampleDurations([]int{6000}) {
+	if !verifySampleDurations([]model{{6000, 1024, false}}) {
 		t.Fatal("sample mismatch:", samples)
 	}
 }
@@ -141,8 +150,8 @@ func Test6(t *testing.T) {
 	}
 	pending = append(pending, InsertPendingOp(time.Now(), 0, OpPing, 8192))
 
-	<-Process(appendSample)
-	if !verifySampleDurations([]int{1000, 0, 0}) {
+	<-Process(appendSample) // 1kB, 2kB
+	if !verifySampleDurations([]model{{1000, 1024, false}, {0, 2048, true}}) {
 		t.Fatal("sample mismatch:", samples)
 	}
 
@@ -153,6 +162,11 @@ func Test6(t *testing.T) {
 	err = RemovePendingOp(pending[2])
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	<-Process(appendSample) // 4kB, 8kB
+	if !verifySampleDurations([]model{{0, 8192, false}, {0, 4096, false}}) {
+		t.Fatal("sample mismatch:", samples)
 	}
 }
 

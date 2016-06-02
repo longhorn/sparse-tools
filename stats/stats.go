@@ -132,8 +132,9 @@ func resetStats(size int) {
 type OpID int
 
 var (
-	pendingOps      = make([]dataPoint, 8, 128)
-	mutexPendingOps sync.Mutex
+	pendingOps         = make([]dataPoint, 8, 128)
+	pendingOpsFreeSlot = make([]int, 0, 128) // stack of recently freed IDs
+	mutexPendingOps    sync.Mutex
 )
 
 //InsertPendingOp starts tracking of a pending operation
@@ -141,7 +142,14 @@ func InsertPendingOp(timestamp time.Time, target int, op SampleOp, size int) OpI
 	mutexPendingOps.Lock()
 	defer mutexPendingOps.Unlock()
 
-	id := pendingOpEmptySlot()
+	var id int
+	if len(pendingOpsFreeSlot) > 0 {
+		//reuse recently freed id
+		id = pendingOpsFreeSlot[len(pendingOpsFreeSlot)-1]
+		pendingOpsFreeSlot = pendingOpsFreeSlot[:len(pendingOpsFreeSlot)-1]
+	} else {
+		id = pendingOpEmptySlot()
+	}
 	pendingOps[id] = dataPoint{target, op, timestamp, 0, size}
 	log.Debug("InsertPendingOp id=", id)
 	return OpID(id)
@@ -171,6 +179,8 @@ func RemovePendingOp(id OpID) error {
 
 	//Remove from pending
 	pendingOps[i].op = OpNone
+	//Stack freed id for quick reuse
+	pendingOpsFreeSlot = append(pendingOpsFreeSlot, i)
 	return nil
 }
 

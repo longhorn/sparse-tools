@@ -165,8 +165,43 @@ func Test6(t *testing.T) {
 	}
 
 	<-Process(appendSample) // 4kB, 8kB
-	if !verifySampleDurations([]model{{0, 8192, false}, {0, 4096, false}}) {
+	if !verifySampleDurations([]model{{0, 4096, false}, {0, 8192, false}}) {
 		t.Fatal("sample mismatch:", samples)
+	}
+}
+
+func Test7(t *testing.T) {
+	log.LevelPush(log.LevelInfo)
+	defer log.LevelPop()
+	resetStats(4)
+
+	var pending []OpID
+	pending = append(pending, InsertPendingOp(time.Now(), 0, OpRead, 2048))
+	pending = append(pending, InsertPendingOp(time.Now(), 0, OpWrite, 4096))
+
+	err := RemovePendingOp(pending[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pendingOpsFreeSlot) != 1 {
+		t.Fatal("pendingOpsFreeSlot stack failure", pendingOpsFreeSlot)
+	}
+
+	pending = append(pending, InsertPendingOp(time.Now(), 0, OpPing, 8192))
+	if len(pendingOpsFreeSlot) != 0 {
+		t.Fatal("pendingOpsFreeSlot stack failure", pendingOpsFreeSlot)
+	}
+
+	err = RemovePendingOp(pending[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RemovePendingOp(pending[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pendingOpsFreeSlot) != 2 {
+		t.Fatal("pendingOpsFreeSlot stack failure", pendingOpsFreeSlot)
 	}
 }
 

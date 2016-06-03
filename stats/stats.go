@@ -35,6 +35,7 @@ type dataPoint struct {
 	timestamp time.Time
 	duration  time.Duration
 	size      int // i/o operation size
+	status    bool
 }
 
 // Minimize space by storing targetID indices in the dataPoint
@@ -89,7 +90,10 @@ func (op SampleOp) String() string {
 func (sample dataPoint) String() string {
 	target := targetID(sample.target)
 	if sample.duration != time.Duration(0) {
-		return fmt.Sprintf("%s: ->%s %v[%3dkB] %8dus", sample.timestamp.Format(time.StampMicro), target, sample.op, sample.size/1024, sample.duration.Nanoseconds()/1000)
+		if sample.status {
+			return fmt.Sprintf("%s: ->%s %v[%3dkB] %8dus", sample.timestamp.Format(time.StampMicro), target, sample.op, sample.size/1024, sample.duration.Nanoseconds()/1000)
+		}
+		return fmt.Sprintf("%s: ->%s %v[%3dkB] %8dus failed", sample.timestamp.Format(time.StampMicro), target, sample.op, sample.size/1024, sample.duration.Nanoseconds()/1000)
 	}
 	return fmt.Sprintf("%s: ->%s %v[%3dkB] pending", sample.timestamp.Format(time.StampMicro), target, sample.op, sample.size/1024)
 }
@@ -122,8 +126,8 @@ func storeSample(sample dataPoint) {
 }
 
 // Sample to the cyclic buffer
-func Sample(timestamp time.Time, duration time.Duration, targetID string, op SampleOp, size int) {
-	storeSample(dataPoint{targetIndex(targetID), op, timestamp, duration, size})
+func Sample(timestamp time.Time, duration time.Duration, targetID string, op SampleOp, size int, status bool) {
+	storeSample(dataPoint{targetIndex(targetID), op, timestamp, duration, size, status})
 }
 
 // Process unreported samples
@@ -201,7 +205,7 @@ var (
 )
 
 //InsertPendingOp starts tracking of a pending operation
-func InsertPendingOp(timestamp time.Time, targetID string, op SampleOp, size int) OpID {
+func InsertPendingOp(timestamp time.Time, targetID string, op SampleOp, size int, status bool) OpID {
 	mutexPendingOps.Lock()
 	defer mutexPendingOps.Unlock()
 
@@ -213,7 +217,7 @@ func InsertPendingOp(timestamp time.Time, targetID string, op SampleOp, size int
 	} else {
 		id = pendingOpEmptySlot()
 	}
-	pendingOps[id] = dataPoint{targetIndex(targetID), op, timestamp, 0, size}
+	pendingOps[id] = dataPoint{targetIndex(targetID), op, timestamp, 0, size, status}
 	log.Debug("InsertPendingOp id=", id)
 	return OpID(id)
 }

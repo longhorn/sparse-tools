@@ -205,7 +205,7 @@ var (
 )
 
 //InsertPendingOp starts tracking of a pending operation
-func InsertPendingOp(timestamp time.Time, targetID string, op SampleOp, size int, status bool) OpID {
+func InsertPendingOp(timestamp time.Time, targetID string, op SampleOp, size int) OpID {
 	mutexPendingOps.Lock()
 	defer mutexPendingOps.Unlock()
 
@@ -217,13 +217,13 @@ func InsertPendingOp(timestamp time.Time, targetID string, op SampleOp, size int
 	} else {
 		id = pendingOpEmptySlot()
 	}
-	pendingOps[id] = dataPoint{targetIndex(targetID), op, timestamp, 0, size, status}
+	pendingOps[id] = dataPoint{targetIndex(targetID), op, timestamp, 0, size, false}
 	log.Debug("InsertPendingOp id=", id)
 	return OpID(id)
 }
 
 //RemovePendingOp removes tracking of a completed operation
-func RemovePendingOp(id OpID) error {
+func RemovePendingOp(id OpID, status bool) error {
 	log.Debug("RemovePendingOp id=", id)
 	mutexPendingOps.Lock()
 	defer mutexPendingOps.Unlock()
@@ -242,6 +242,7 @@ func RemovePendingOp(id OpID) error {
 
 	// Update the duration and store in the recent stats
 	pendingOps[i].duration = time.Now().Sub(pendingOps[i].timestamp)
+	pendingOps[i].status = status
 	storeSample(pendingOps[i])
 
 	//Remove from pending

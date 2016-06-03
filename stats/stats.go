@@ -30,11 +30,47 @@ const (
 )
 
 type dataPoint struct {
-	target    int // e.g replica index
+	target    int // index in targetIDs (e.g replica index)
 	op        SampleOp
 	timestamp time.Time
 	duration  time.Duration
 	size      int // i/o operation size
+}
+
+// Minimize space by storing targetID indices in the dataPoint
+var (
+	targetIDs   = make([]string, 0, 128)
+	targetMap   = make(map[string]int, 128)
+	targetMutex sync.RWMutex
+)
+
+func targetIndex(targetID string) int {
+	targetMutex.RLock()
+	target, exists := targetMap[targetID]
+	targetMutex.RUnlock()
+	if exists {
+		return target
+	}
+
+	// register the ID
+	targetMutex.Lock()
+	defer targetMutex.Unlock()
+
+	target, exists = targetMap[targetID]
+	if exists {
+		return target
+	}
+
+	target = len(targetMap)
+	targetMap[targetID] = target
+	targetIDs = append(targetIDs, targetID)
+	return target
+}
+
+func targetID(i int) string {
+	targetMutex.RLock()
+	defer targetMutex.RUnlock()
+	return targetIDs[i]
 }
 
 // String conversions
@@ -51,10 +87,11 @@ func (op SampleOp) String() string {
 }
 
 func (sample dataPoint) String() string {
+	target := targetID(sample.target)
 	if sample.duration != time.Duration(0) {
-		return fmt.Sprintf("%s: #%d %v[%3dkB] %8dus", sample.timestamp.Format(time.StampMicro), sample.target, sample.op, sample.size/1024, sample.duration.Nanoseconds()/1000)
+		return fmt.Sprintf("%s: ->%s %v[%3dkB] %8dus", sample.timestamp.Format(time.StampMicro), target, sample.op, sample.size/1024, sample.duration.Nanoseconds()/1000)
 	}
-	return fmt.Sprintf("%s: #%d %v[%3dkB] pending", sample.timestamp.Format(time.StampMicro), sample.target, sample.op, sample.size/1024)
+	return fmt.Sprintf("%s: ->%s %v[%3dkB] pending", sample.timestamp.Format(time.StampMicro), target, sample.op, sample.size/1024)
 }
 
 var (
@@ -85,8 +122,8 @@ func storeSample(sample dataPoint) {
 }
 
 // Sample to the cyclic buffer
-func Sample(timestamp time.Time, duration time.Duration, target int, op SampleOp, size int) {
-	storeSample(dataPoint{target, op, timestamp, duration, size})
+func Sample(timestamp time.Time, duration time.Duration, targetID string, op SampleOp, size int) {
+	storeSample(dataPoint{targetIndex(targetID), op, timestamp, duration, size})
 }
 
 // Process unreported samples
@@ -164,7 +201,7 @@ var (
 )
 
 //InsertPendingOp starts tracking of a pending operation
-func InsertPendingOp(timestamp time.Time, target int, op SampleOp, size int) OpID {
+func InsertPendingOp(timestamp time.Time, targetID string, op SampleOp, size int) OpID {
 	mutexPendingOps.Lock()
 	defer mutexPendingOps.Unlock()
 
@@ -176,7 +213,7 @@ func InsertPendingOp(timestamp time.Time, target int, op SampleOp, size int) OpI
 	} else {
 		id = pendingOpEmptySlot()
 	}
-	pendingOps[id] = dataPoint{target, op, timestamp, 0, size}
+	pendingOps[id] = dataPoint{targetIndex(targetID), op, timestamp, 0, size}
 	log.Debug("InsertPendingOp id=", id)
 	return OpID(id)
 }

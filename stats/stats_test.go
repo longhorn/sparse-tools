@@ -23,6 +23,11 @@ var (
 	samples = make(chan dataPoint, 4)
 )
 
+func resetSamples() {
+	close(samples)
+	samples = make(chan dataPoint, 4)
+}
+
 func appendSample(sample dataPoint) {
 	samples <- sample
 }
@@ -32,6 +37,7 @@ type model struct {
 	durationIgnore bool
 }
 
+// drops veryfied samples
 func verifySampleDurations(m []model) bool {
 	for _, expected := range m {
 		sample := <-samples
@@ -202,6 +208,42 @@ func Test7(t *testing.T) {
 	}
 	if len(pendingOpsFreeSlot) != 2 {
 		t.Fatal("pendingOpsFreeSlot stack failure", pendingOpsFreeSlot)
+	}
+
+	resetSamples() // cleanup for other tests
+}
+
+// test ProcessLimited
+func Test8(t *testing.T) {
+	log.LevelPush(log.LevelInfo)
+	defer log.LevelPop()
+	resetStats(4)
+
+	Sample(time.Now(), time.Duration(1000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(2000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(3000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(4000), 0, OpRead, 1024)
+
+	<-ProcessLimited(2, appendSample)
+	if !verifySampleDurations([]model{{3000, 1024, false}, {4000, 1024, false}}) {
+		t.Fatal("sample mismatch:", samples)
+	}
+}
+
+// test ProcessLimited; unspecified limit
+func Test9(t *testing.T) {
+	log.LevelPush(log.LevelInfo)
+	defer log.LevelPop()
+	resetStats(4)
+
+	Sample(time.Now(), time.Duration(1000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(2000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(3000), 0, OpRead, 1024)
+	Sample(time.Now(), time.Duration(4000), 0, OpRead, 1024)
+
+	<-ProcessLimited(0, appendSample)
+	if !verifySampleDurations([]model{{1000, 1024, false}, {2000, 1024, false}, {3000, 1024, false}, {4000, 1024, false}}) {
+		t.Fatal("sample mismatch:", samples)
 	}
 }
 

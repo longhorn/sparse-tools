@@ -91,15 +91,35 @@ func Sample(timestamp time.Time, duration time.Duration, target int, op SampleOp
 
 // Process unreported samples
 func Process(processor func(dataPoint)) chan struct{} {
+	return ProcessLimited(0 /*no limit*/, processor)
+}
+
+// ProcessLimited number of unreported samples is restricted by specified limit, the rest os droppped
+func ProcessLimited(limit int, processor func(dataPoint)) chan struct{} {
 	// Fetch unreported window
 	done := make(chan struct{})
-	go func(pending []dataPoint, done chan struct{}) {
+	dropCount := 0
+	if limit > 0 {
+		count := len(cdata)
+		if count > limit {
+			// drop old samples to satisfy the limit
+			dropCount = count - limit
+		}
+	}
+
+	go func(dropCount, limit int, pending []dataPoint, done chan struct{}) {
 	samples:
-		for {
+		for count := 0; limit == 0 || count < limit; {
 			select {
 			case sample := <-cdata:
 				log.Debug("Stats.Processing=", sample)
+				if dropCount > 0 {
+					// skip old samples
+					dropCount--
+					break
+				}
 				processor(sample)
+				count++
 			default:
 				break samples
 			}
@@ -109,7 +129,8 @@ func Process(processor func(dataPoint)) chan struct{} {
 			processor(sample)
 		}
 		close(done)
-	}(getPendingOps(), done)
+	}(dropCount, limit, getPendingOps(), done)
+
 	return done
 }
 
@@ -120,6 +141,11 @@ func printSample(sample dataPoint) {
 // Print samples
 func Print() chan struct{} {
 	return Process(printSample)
+}
+
+// PrintLimited samples
+func PrintLimited(limit int) chan struct{} {
+	return ProcessLimited(limit, printSample)
 }
 
 // Test helper to exercise small buffer sizes

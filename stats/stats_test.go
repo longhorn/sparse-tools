@@ -126,16 +126,16 @@ func Test5(t *testing.T) {
 
 	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
 	var pending []OpID
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpRead, 2048, true))
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpWrite, 4096, true))
-	err := RemovePendingOp(pending[0])
+	pending = append(pending, InsertPendingOp(time.Now(), "", OpRead, 2048))
+	pending = append(pending, InsertPendingOp(time.Now(), "", OpWrite, 4096))
+	err := RemovePendingOp(pending[0], true)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	<-Print()
 
-	err = RemovePendingOp(pending[1])
+	err = RemovePendingOp(pending[1], true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,24 +148,24 @@ func Test6(t *testing.T) {
 
 	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
 	var pending []OpID
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpRead, 2048, true))
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpWrite, 4096, true))
-	err := RemovePendingOp(pending[0])
+	pending = append(pending, InsertPendingOp(time.Now(), "", OpRead, 2048))
+	pending = append(pending, InsertPendingOp(time.Now(), "", OpWrite, 4096))
+	err := RemovePendingOp(pending[0], true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpPing, 8192, true))
+	pending = append(pending, InsertPendingOp(time.Now(), "", OpPing, 8192))
 
 	<-Process(appendSample) // 1kB, 2kB
 	if !verifySampleDurations([]model{{1000, 1024, false}, {0, 2048, true}}) {
 		t.Fatal("sample mismatch:", samples)
 	}
 
-	err = RemovePendingOp(pending[1])
+	err = RemovePendingOp(pending[1], true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = RemovePendingOp(pending[2])
+	err = RemovePendingOp(pending[2], true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,10 +182,10 @@ func Test7(t *testing.T) {
 	resetStats(4)
 
 	var pending []OpID
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpRead, 2048, true))
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpWrite, 4096, true))
+	pending = append(pending, InsertPendingOp(time.Now(), "", OpRead, 2048))
+	pending = append(pending, InsertPendingOp(time.Now(), "", OpWrite, 4096))
 
-	err := RemovePendingOp(pending[0])
+	err := RemovePendingOp(pending[0], true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,16 +193,16 @@ func Test7(t *testing.T) {
 		t.Fatal("pendingOpsFreeSlot stack failure", pendingOpsFreeSlot)
 	}
 
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpPing, 8192, true))
+	pending = append(pending, InsertPendingOp(time.Now(), "", OpPing, 8192))
 	if len(pendingOpsFreeSlot) != 0 {
 		t.Fatal("pendingOpsFreeSlot stack failure", pendingOpsFreeSlot)
 	}
 
-	err = RemovePendingOp(pending[1])
+	err = RemovePendingOp(pending[1], true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = RemovePendingOp(pending[2])
+	err = RemovePendingOp(pending[2], true)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -71,6 +71,9 @@ func targetIndex(targetID string) int {
 func targetID(i int) string {
 	targetMutex.RLock()
 	defer targetMutex.RUnlock()
+	if i < 0 || i >= len(targetIDs) {
+		return "<unspecified target>"
+	}
 	return targetIDs[i]
 }
 

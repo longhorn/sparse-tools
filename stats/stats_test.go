@@ -301,3 +301,15 @@ func Benchmark_C10(b *testing.B) {
 func Benchmark_C100(b *testing.B) {
 	benchmark(storeSample, 100, b)
 }
+
+func Benchmark_C100Flush(b *testing.B) {
+	log.LevelPush(log.LevelDebug)
+	defer log.LevelPop()
+	go func() {
+		ticks := time.Tick(time.Millisecond)
+		for _ = range ticks {
+			PrintLimited(10)
+		}
+	}()
+	benchmark(storeSample, 100, b)
+}

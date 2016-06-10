@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	defaultBufferSize = 100 * 1000 // sample buffer size (cyclic)
+	defaultBufferSize = 4 * 1000 // sample buffer size (cyclic)
 )
 
 //SampleOp operation

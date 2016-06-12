@@ -9,17 +9,14 @@ import (
 	"bytes"
 
 	"encoding/binary"
+	"encoding/gob"
+	"errors"
+	"fmt"
+	"time"
 
 	fio "github.com/rancher/sparse-tools/directfio"
 	"github.com/rancher/sparse-tools/log"
 )
-
-import "encoding/gob"
-
-import "errors"
-
-import "fmt"
-import "time"
 
 // HashCollsisionError indicates block hash collision
 type HashCollsisionError struct{}
@@ -56,26 +53,26 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 }
 
 func syncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int, retry bool) ([]byte, error) {
-	var hashLocal []byte // empty hash for errors
 	file, err := fio.OpenFile(localPath, os.O_RDONLY, 0)
 	if err != nil {
 		log.Error("Failed to open local source file:", localPath)
-		return hashLocal, err
+		return nil, err
 	}
 	defer file.Close()
 
-	size, errSize := file.Seek(0, os.SEEK_END)
-	if errSize != nil {
-		log.Error("Failed to get size of local source file:", localPath, errSize)
-		return hashLocal, errSize
+	size, err := file.Seek(0, os.SEEK_END)
+	if err != nil {
+		log.Error("Failed to get size of local source file:", localPath, err)
+		return nil, err
 	}
 
 	SetupFileIO(size%Blocks == 0)
 
 	conn := connect(addr.Host, strconv.Itoa(int(addr.Port)), timeout)
 	if nil == conn {
-		log.Error("Failed to connect to", addr)
-		return hashLocal, errors.New("Connection failed")
+		err = fmt.Errorf("Failed to connect to %v", addr)
+		log.Error(err)
+		return nil, err
 	}
 	defer conn.Close()
 
@@ -87,7 +84,9 @@ func syncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	binary.PutVarint(salt, time.Now().UnixNano())
 	status := sendSyncRequest(encoder, decoder, remotePath, size, salt)
 	if !status {
-		return hashLocal, errors.New("Sync request failed")
+		err = fmt.Errorf("Sync request to %v failed", remotePath)
+		log.Error(err)
+		return nil, err
 	}
 
 	abortStream := make(chan error)
@@ -98,7 +97,7 @@ func syncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	err = loadFileLayout(abortStream, file, layoutStream, errStream)
 	if err != nil {
 		log.Error("Failed to retrieve local file layout:", err)
-		return hashLocal, err
+		return nil, err
 	}
 
 	fileStream := make(chan FileInterval, 128)

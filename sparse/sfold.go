@@ -4,7 +4,6 @@ import (
 	"os"
 	"syscall"
 
-	fio "github.com/rancher/sparse-tools/directfio"
 	log "github.com/Sirupsen/logrus"
 )
 
@@ -31,41 +30,33 @@ func FoldFile(childFileName, parentFileName string) error {
 	}
 
 	// open child and parent files
-	childFile, err := fio.OpenFile(childFileName, os.O_RDONLY, 0)
+	childFileIo, err := NewDirectFileIoProcessor(childFileName, os.O_RDONLY, 0)
 	if err != nil {
 		panic("Failed to open childFile, error: " + err.Error())
 	}
-	defer childFile.Close()
+	defer childFileIo.Close()
 
-	parentFile, err := fio.OpenFile(parentFileName, os.O_WRONLY, 0)
+	parentFileIo, err := NewDirectFileIoProcessor(parentFileName, os.O_WRONLY, 0)
 	if err != nil {
 		panic("Failed to open parentFile, error: " + err.Error())
 	}
-	defer parentFile.Close()
+	defer parentFileIo.Close()
 
-	return coalesce(parentFile, childFile)
+	return coalesce(parentFileIo, childFileIo)
 }
 
-func coalesce(parentFile *os.File, childFile *os.File) error {
-	blockSize, err := getFileSystemBlockSize(childFile)
+func coalesce(parentFileIo FileIoProcessor, childFileIo FileIoProcessor) error {
+	blockSize, err := getFileSystemBlockSize(childFileIo)
 	if err != nil {
 		panic("can't get FS block size, error: " + err.Error())
 	}
 	var data, hole int64
 	for {
-		data, err = syscall.Seek(int(childFile.Fd()), hole, seekData)
-		if err != nil {
-			// reaches EOF
-			errno := err.(syscall.Errno)
-			if errno == syscall.ENXIO {
-				break
-			} else {
-				// unexpected errors
-				log.Error("Failed to syscall.Seek SEEK_DATA")
-				return err
-			}
+		data, _ = childFileIo.Seek(hole, seekData)
+		if data < hole {
+			break
 		}
-		hole, err = syscall.Seek(int(childFile.Fd()), data, seekHole)
+		hole, err = childFileIo.Seek(data, seekHole)
 		if err != nil {
 			log.Error("Failed to syscall.Seek SEEK_HOLE")
 			return err
@@ -73,23 +64,23 @@ func coalesce(parentFile *os.File, childFile *os.File) error {
 
 		// now we have a data start offset and length(hole - data)
 		// let's read from child and write to parent file block by block
-		_, err = parentFile.Seek(data, os.SEEK_SET)
+		_, err = parentFileIo.Seek(data, os.SEEK_SET)
 		if err != nil {
 			log.Error("Failed to os.Seek os.SEEK_SET")
 			return err
 		}
 
 		offset := data
-		buffer := fio.AllocateAligned(blockSize)
+		buffer := AllocateAligned(blockSize)
 		for offset != hole {
 			// read a block from child, maybe use bufio or Reader stream
-			n, err := fio.ReadAt(childFile, buffer, offset)
+			n, err := childFileIo.fileReadAt(buffer, offset)
 			if n != len(buffer) || err != nil {
 				log.Error("Failed to read from childFile")
 				return err
 			}
 			// write a block to parent
-			n, err = fio.WriteAt(parentFile, buffer, offset)
+			n, err = parentFileIo.fileWriteAt(buffer, offset)
 			if n != len(buffer) || err != nil {
 				log.Error("Failed to write to parentFile")
 				return err
@@ -102,8 +93,8 @@ func coalesce(parentFile *os.File, childFile *os.File) error {
 }
 
 // get the file system block size
-func getFileSystemBlockSize(f *os.File) (int, error) {
+func getFileSystemBlockSize(fileIo FileIoProcessor) (int, error) {
 	var stat syscall.Stat_t
-	err := syscall.Stat(f.Name(), &stat)
+	err := syscall.Stat(fileIo.Name(), &stat)
 	return int(stat.Blksize), err
 }

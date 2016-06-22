@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/rancher/sparse-tools/log"
+	log "github.com/Sirupsen/logrus"
 	"github.com/rancher/sparse-tools/sparse"
 )
 
 func Main() {
-	defaultVerboseLogLevel := log.DebugLevel    // set if -verbose
+	defaultVerboseLogLevel := log.DebugLevel   // set if -verbose
 	defaultNonVerboseLogLevel := log.InfoLevel // set if -verbose=false
 	// Command line parsing
 	verbose := flag.Bool("verbose", false, "verbose mode")
@@ -36,12 +36,10 @@ Examples:
 		// Daemon mode
 		endpoint := sparse.TCPEndPoint{Host: "" /*bind to all*/, Port: int16(*port)}
 		if *verbose {
-			log.LevelPush(defaultVerboseLogLevel)
-			defer log.LevelPop()
+			log.SetLevel(defaultVerboseLogLevel)
 			fmt.Fprintln(os.Stderr, "Listening on", endpoint, "...")
 		} else {
-			log.LevelPush(defaultNonVerboseLogLevel)
-			defer log.LevelPop()
+			log.SetLevel(defaultNonVerboseLogLevel)
 		}
 
 		sparse.Server(endpoint, *timeout)
@@ -60,17 +58,15 @@ Examples:
 
 		endpoint := sparse.TCPEndPoint{Host: *host, Port: int16(*port)}
 		if *verbose {
-			log.LevelPush(defaultVerboseLogLevel)
-			defer log.LevelPop()
+			log.SetLevel(defaultVerboseLogLevel)
 			fmt.Fprintf(os.Stderr, "Syncing %s to %s@%s:%d...\n", srcPath, dstPath, endpoint.Host, endpoint.Port)
 		} else {
-			log.LevelPush(defaultNonVerboseLogLevel)
-			defer log.LevelPop()
+			log.SetLevel(defaultNonVerboseLogLevel)
 		}
 
 		_, err := sparse.SyncFile(srcPath, endpoint, dstPath, *timeout)
 		if err != nil {
-			log.Info("ssync: error:", err, "exit code 1")
+			log.Info("ssync: error: ", err, ", exit code 1")
 			os.Exit(1)
 		}
 		log.Info("ssync: exit code 0")

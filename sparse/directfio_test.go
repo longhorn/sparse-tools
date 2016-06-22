@@ -1,4 +1,4 @@
-package directfio_test
+package sparse
 
 import (
 	"bytes"
@@ -9,15 +9,12 @@ import (
 
 	"io/ioutil"
 
-	"syscall"
-
 	log "github.com/Sirupsen/logrus"
-	fio "github.com/rancher/sparse-tools/directfio"
 )
 
-func tempFilePath() string {
+func tempFilePathDirectIo() string {
 	// Make a temporary file path
-	f, err := ioutil.TempFile("", "fio-test")
+	f, err := ioutil.TempFile("", "directIo-test")
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}
@@ -27,9 +24,9 @@ func tempFilePath() string {
 
 // tempBigFileName is for files that are substantial in isze (for benchmark and stress tests)
 // created in current directory
-func tempBigFilePath() string {
+func tempBigFilePathDirectIo() string {
 	// Make a temporary file path in current dir
-	f, err := ioutil.TempFile(".", "fio-test")
+	f, err := ioutil.TempFile(".", "directIo-test")
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}
@@ -55,35 +52,35 @@ func TestDirectFileIO1(t *testing.T) {
 	blocks := 4
 
 	// Init data
-	data1 := fio.AllocateAligned(blocks * fio.BlockSize)
+	data1 := AllocateAligned(blocks * BlockSize)
 	fillData(data1, 0)
 
-	path := tempFilePath()
+	path := tempFilePathDirectIo()
 	defer cleanup(path)
 	{
 		// Write
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|syscall.O_DIRECT, 0644)
+		fileIo, err := NewDirectFileIoProcessor(path, os.O_WRONLY, 0644, true)
 		if err != nil {
 			t.Fatal("Failed to OpenFile for write", err)
 		}
-		defer f.Close()
+		defer fileIo.Close()
 
-		_, err = f.WriteAt(data1, int64(blocks*fio.BlockSize))
+		_, err = fileIo.fileWriteAt(data1, int64(blocks*BlockSize))
 		if err != nil {
 			t.Fatal("Failed to write", err)
 		}
 	}
 
-	data2 := fio.AllocateAligned(blocks * fio.BlockSize)
+	data2 := AllocateAligned(blocks * BlockSize)
 	{
 		// Read
-		f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_DIRECT, 0)
+		fileIo, err := NewDirectFileIoProcessor(path, os.O_RDONLY, 0)
 		if err != nil {
 			t.Fatal("Failed to OpenFile for read", err)
 		}
-		defer f.Close()
+		defer fileIo.Close()
 
-		_, err = f.ReadAt(data2, int64(blocks*fio.BlockSize))
+		_, err = fileIo.fileReadAt(data2, int64(blocks*BlockSize))
 		if err != nil {
 			t.Fatal("Failed to read", err)
 		}
@@ -99,35 +96,35 @@ func TestDirectFileIO2(t *testing.T) {
 	blocks := 4
 
 	// Init data
-	data1 := make([]byte, blocks*fio.BlockSize)
+	data1 := make([]byte, blocks*BlockSize)
 	fillData(data1, 0)
 
-	path := tempFilePath()
+	path := tempFilePathDirectIo()
 	defer cleanup(path)
 	{
 		// Write
-		f, err := fio.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
+		fileIo, err := NewDirectFileIoProcessor(path, os.O_WRONLY, 0644, true)
 		if err != nil {
 			t.Fatal("Failed to OpenFile for write", err)
 		}
-		defer f.Close()
+		defer fileIo.Close()
 
-		_, err = fio.WriteAt(f, data1, int64(blocks*fio.BlockSize))
+		_, err = fileIo.fileWriteAt(data1, int64(blocks*BlockSize))
 		if err != nil {
 			t.Fatal("Failed to write", err)
 		}
 	}
 
-	data2 := make([]byte, blocks*fio.BlockSize)
+	data2 := make([]byte, blocks*BlockSize)
 	{
 		// Read
-		f, err := fio.OpenFile(path, os.O_RDONLY, 0)
+		fileIo, err := NewDirectFileIoProcessor(path, os.O_RDONLY, 0)
 		if err != nil {
 			t.Fatal("Failed to OpenFile for read", err)
 		}
-		defer f.Close()
+		defer fileIo.Close()
 
-		_, err = fio.ReadAt(f, data2, int64(blocks*fio.BlockSize))
+		_, err = fileIo.fileReadAt(data2, int64(blocks*BlockSize))
 		if err != nil {
 			t.Fatal("Failed to read", err)
 		}
@@ -144,17 +141,17 @@ const fileSize = int64(1) /*GB*/ << 30
 const FileMode = os.O_RDWR
 
 func write(b *testing.B, path string, done chan<- bool, batchSize int, offset, size int64) {
-	data := fio.AllocateAligned(batchSize)
+	data := AllocateAligned(batchSize)
 	fillData(data, 0)
 
-	f, err := os.OpenFile(path, syscall.O_DIRECT|FileMode, 0)
+	fileIo, err := NewDirectFileIoProcessor(path, os.O_RDWR, 0)
 	if err != nil {
 		b.Fatal("Failed to OpenFile for write", err)
 	}
-	defer f.Close()
+	defer fileIo.Close()
 
 	for pos := offset; pos < offset+size; pos += int64(batchSize) {
-		_, err = f.WriteAt(data, pos)
+		_, err = fileIo.fileWriteAt(data, pos)
 		if err != nil {
 			b.Fatal("Failed to write", err)
 		}
@@ -163,16 +160,16 @@ func write(b *testing.B, path string, done chan<- bool, batchSize int, offset, s
 }
 
 func read(b *testing.B, path string, done chan<- bool, batchSize int, offset, size int64) {
-	data := fio.AllocateAligned(batchSize)
+	data := AllocateAligned(batchSize)
 
-	f, err := os.OpenFile(path, syscall.O_DIRECT|FileMode, 0)
+	fileIo, err := NewDirectFileIoProcessor(path, os.O_RDWR, 0)
 	if err != nil {
 		b.Fatal("Failed to OpenFile for read", err)
 	}
-	defer f.Close()
+	defer fileIo.Close()
 
 	for pos := offset; pos < offset+size; pos += int64(batchSize) {
-		_, err = f.ReadAt(data, pos)
+		_, err = fileIo.fileReadAt(data, pos)
 		if err != nil {
 			b.Fatal("Failed to read", err)
 		}
@@ -184,14 +181,14 @@ func writeUnaligned(b *testing.B, path string, done chan<- bool, batchSize int, 
 	data := make([]byte, batchSize)
 	fillData(data, 0)
 
-	f, err := fio.OpenFile(path, FileMode, 0)
+	fileIo, err := NewDirectFileIoProcessor(path, os.O_RDWR, 0)
 	if err != nil {
 		b.Fatal("Failed to OpenFile for write", err)
 	}
-	defer f.Close()
+	defer fileIo.Close()
 
 	for pos := offset; pos < offset+size; pos += int64(batchSize) {
-		_, err = fio.WriteAt(f, data, pos)
+		_, err = fileIo.fileWriteAt(data, pos)
 		if err != nil {
 			b.Fatal("Failed to write", err)
 		}
@@ -202,14 +199,14 @@ func writeUnaligned(b *testing.B, path string, done chan<- bool, batchSize int, 
 func readUnaligned(b *testing.B, path string, done chan<- bool, batchSize int, offset, size int64) {
 	data := make([]byte, batchSize)
 
-	f, err := fio.OpenFile(path, FileMode, 0)
+	fileIo, err := NewDirectFileIoProcessor(path, os.O_RDWR, 0)
 	if err != nil {
 		b.Fatal("Failed to OpenFile for read", err)
 	}
-	defer f.Close()
+	defer fileIo.Close()
 
 	for pos := offset; pos < offset+size; pos += int64(batchSize) {
-		_, err = fio.ReadAt(f, data, pos)
+		_, err = fileIo.fileReadAt(data, pos)
 		if err != nil {
 			b.Fatal("Failed to read", err)
 		}
@@ -222,7 +219,7 @@ func ioTest(title string, b *testing.B, path string, threads, batch int, io func
 	chunkSize := fileSize / int64(threads)
 
 	start := time.Now().UnixNano()
-	ioSize := batch * fio.BlockSize
+	ioSize := batch * BlockSize
 	for i := 0; i < threads; i++ {
 		go io(b, path, done, ioSize, int64(i)*chunkSize, chunkSize)
 	}
@@ -236,7 +233,7 @@ func ioTest(title string, b *testing.B, path string, threads, batch int, io func
 }
 
 func BenchmarkIO8(b *testing.B) {
-	path := tempBigFilePath()
+	path := tempBigFilePathDirectIo()
 
 	defer cleanup(path)
 	f, err := os.OpenFile(path, os.O_CREATE|FileMode, 0644)
@@ -262,7 +259,7 @@ func BenchmarkIO8(b *testing.B) {
 }
 
 func BenchmarkIO8u(b *testing.B) {
-	path := tempBigFilePath()
+	path := tempBigFilePathDirectIo()
 
 	defer cleanup(path)
 	f, err := os.OpenFile(path, os.O_CREATE|FileMode, 0644)

@@ -94,7 +94,6 @@ func TestRandomSyncCustomGB(t *testing.T) {
 
 	// random seed
 	seed := time.Now().UnixNano()
-	log.SetLevel(log.InfoLevel)
 	log.Info("seed=", seed)
 
 	// default size

@@ -527,68 +527,6 @@ func TestSyncDiff24(t *testing.T) {
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
-func TestSyncHash1(t *testing.T) {
-	var hash1, hash2 []byte
-	{
-		layoutLocal := []FileInterval{
-			{SparseData, Interval{0, 1 * Blocks}},
-			{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		}
-		layoutRemote := layoutLocal
-		hash1 = testSyncFile(t, layoutLocal, layoutRemote)
-	}
-	{
-
-		layoutLocal := []FileInterval{
-			{SparseData, Interval{0, 1 * Blocks}},
-			{SparseHole, Interval{1 * Blocks, 3 * Blocks}},
-		}
-		layoutRemote := layoutLocal
-		hash2 = testSyncFile(t, layoutLocal, layoutRemote)
-	}
-	if !isHashDifferent(hash1, hash2) {
-		t.Fatal("Files with same data content but different layouts should have unique hashes")
-	}
-}
-
-func TestSyncHash2(t *testing.T) {
-	var hash1, hash2 []byte
-	{
-		layoutLocal := []FileInterval{
-			{SparseData, Interval{0, 1 * Blocks}},
-			{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		}
-		layoutRemote := []FileInterval{}
-		hash1 = testSyncFile(t, layoutLocal, layoutRemote)
-	}
-	{
-
-		layoutLocal := []FileInterval{
-			{SparseData, Interval{0, 1 * Blocks}},
-			{SparseHole, Interval{1 * Blocks, 3 * Blocks}},
-		}
-		layoutRemote := []FileInterval{}
-		hash2 = testSyncFile(t, layoutLocal, layoutRemote)
-	}
-	if !isHashDifferent(hash1, hash2) {
-		t.Fatal("Files with same data content but different layouts should have unique hashes")
-	}
-}
-
-func TestSyncHashSalt(t *testing.T) {
-	var hash1, hash2 []byte
-	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-	}
-	layoutRemote := []FileInterval{}
-	hash1 = testSyncFile(t, layoutLocal, layoutRemote)
-	hash2 = testSyncFile(t, layoutLocal, layoutRemote)
-	if !isHashDifferent(hash1, hash2) {
-		t.Fatal("Files with same data content but different salts should have unique hashes")
-	}
-}
-
 func TestSyncFileHashRetry(t *testing.T) {
 	layoutLocal := []FileInterval{
 		{SparseData, Interval{0, 1 * Blocks}},

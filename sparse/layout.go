@@ -1,13 +1,12 @@
 package sparse
 
 import (
-	"os"
-	"syscall"
-
+	"bytes"
 	"fmt"
+	"os"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/frostschutz/go-fibmap"
-	"github.com/rancher/sparse-tools/log"
 )
 
 // Interval [Begin, End) is non-inclusive at the End
@@ -57,9 +56,9 @@ func (i FileInterval) String() string {
 	return fmt.Sprintf("%s%v", kind, i.Interval)
 }
 
-// Storage block size in bytes
 const (
-	Blocks int64 = 4 << 10 // 4k
+	// Blocks : block size in bytes
+	Blocks                int64 = 4 << 10 // 4k
 )
 
 // os.Seek sparse whence values.
@@ -86,6 +85,20 @@ const (
 	// de-allocates range
 	fallocFlPunchHole uint32 = 2
 )
+
+func makeData(interval FileInterval) []byte {
+	data := make([]byte, interval.Len())
+	if SparseData == interval.Kind {
+		for i := range data {
+			data[i] = byte(interval.Begin/Blocks + 1)
+		}
+	}
+	return data
+}
+
+func isHashDifferent(a, b []byte) bool {
+	return !bytes.Equal(a, b)
+}
 
 // RetrieveLayoutStream streams sparse file data/hole layout
 // Based on fiemap
@@ -164,97 +177,6 @@ func RetrieveLayoutStream(abortStream <-chan error, file *os.File, r Interval, l
 	return
 }
 
-// RetrieveLayoutStream0 streams sparse file data/hole layout
-// Deprecated; Based on file.seek; use RetrieveLayoutStream instead
-// To abort: abortStream <- error
-// Check status: err := <- errStream
-// Usage: go RetrieveLayoutStream(...)
-func RetrieveLayoutStream0(abortStream <-chan error, file *os.File, r Interval, layoutStream chan<- FileInterval, errStream chan<- error) {
-	curr := r.Begin
-
-	// Data or hole?
-	offsetData, errData := file.Seek(curr, seekData)
-	offsetHole, errHole := file.Seek(curr, seekHole)
-	var interval FileInterval
-	if errData != nil {
-		// Hole only
-		interval = FileInterval{SparseHole, Interval{curr, r.End}}
-		if interval.Len() > 0 {
-			layoutStream <- interval
-		}
-		close(layoutStream)
-		errStream <- nil
-		return
-	} else if errHole != nil {
-		// Data only
-		interval = FileInterval{SparseData, Interval{curr, r.End}}
-		if interval.Len() > 0 {
-			layoutStream <- interval
-		}
-		close(layoutStream)
-		errStream <- nil
-		return
-	}
-
-	if offsetData < offsetHole {
-		interval = FileInterval{SparseData, Interval{curr, offsetHole}}
-		curr = offsetHole
-	} else {
-		interval = FileInterval{SparseHole, Interval{curr, offsetData}}
-		curr = offsetData
-	}
-	if interval.Len() > 0 {
-		layoutStream <- interval
-	}
-
-	for curr < r.End {
-		// Check abort condition
-		select {
-		case err := <-abortStream:
-			close(layoutStream)
-			errStream <- err
-			return
-		default:
-		}
-
-		var whence int
-		if SparseData == interval.Kind {
-			whence = seekData
-		} else {
-			whence = seekHole
-		}
-
-		// Note: file.Seek masks syscall.ENXIO hence syscall is used instead
-		next, errno := syscall.Seek(int(file.Fd()), curr, whence)
-		if errno != nil {
-			switch errno {
-			case syscall.ENXIO:
-				// no more intervals
-				next = r.End // close the last interval
-			default:
-				// mimic standard "os"" package error handler
-				close(layoutStream)
-				errStream <- &os.PathError{Op: "seek", Path: file.Name(), Err: errno}
-				return
-			}
-		}
-		if SparseData == interval.Kind {
-			// End of data, handle the last hole if any
-			interval = FileInterval{SparseHole, Interval{curr, next}}
-		} else {
-			// End of hole, handle the last data if any
-			interval = FileInterval{SparseData, Interval{curr, next}}
-		}
-		curr = next
-		if interval.Len() > 0 {
-			layoutStream <- interval
-		}
-	}
-	close(layoutStream)
-	errStream <- nil
-	return
-}
-
 // RetrieveLayout retrieves sparse file hole and data layout
 func RetrieveLayout(file *os.File, r Interval) ([]FileInterval, error) {
 	layout := make([]FileInterval, 0, 1024)
@@ -267,11 +189,4 @@ func RetrieveLayout(file *os.File, r Interval) ([]FileInterval, error) {
 		layout = append(layout, interval)
 	}
 	return layout, <-errStream
-}
-
-// PunchHole in a sparse file, preserve file size
-func PunchHole(file *os.File, hole Interval) error {
-	fd := int(file.Fd())
-	mode := fallocFlPunchHole | fallocFlKeepSize
-	return syscall.Fallocate(fd, mode, hole.Begin, hole.Len())
 }

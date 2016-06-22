@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"bytes"
 
 	"github.com/rancher/sparse-tools/log"
 )
@@ -67,12 +68,29 @@ type requestCode int
 
 const (
 	requestMagic    requestCode = 31415926
-	syncRequestCode requestCode = 1
+	syncRequestCode requestCode = 1 + iota
+	syncHole
+	syncData
+	syncDone
 )
 
 type requestHeader struct {
 	Magic requestCode
 	Code  requestCode
+}
+
+type replyCode int
+
+const (
+	replyMagic    replyCode = 31415928
+	continueSync  replyCode = 1 + iota
+	sendChecksum
+	sendData
+)
+
+type replyHeader struct {
+	Magic replyCode
+	Code  replyCode
 }
 
 // returns true if no retry is necessary
@@ -154,81 +172,218 @@ func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, s
 	}
 	defer fileRO.Close()
 
-	abortStream := make(chan error)
-	layoutStream := make(chan FileInterval, 128)
-	errStream := make(chan error)
-
-	fileStream := make(chan FileInterval, 128)
-	unorderedStream := make(chan HashedDataInterval, 128)
-	orderedStream := make(chan HashedDataInterval, 128)
-	netOutStream := make(chan HashedInterval, 128)
-	netOutDoneStream := make(chan bool)
-
-	netInStream := make(chan DataInterval, 128)
-	fileWriteStream := make(chan DataInterval, 128)
-	deltaReceiverDoneDone := make(chan bool)
-	checksumStream := make(chan DataInterval, 128)
-	resultStream := make(chan []byte)
-
-	// Initiate interval loading...
-	err = loadFileLayout(abortStream, fileRO, layoutStream, errStream)
+	// the starting point of interval sync request within originalFileIntervalLayout slice
+	index := 0
+	originalFileIntervalLayout, err := getOriginalFileLayout(file)
 	if err != nil {
+		log.Error("Failed to getOriginalFileLayout", err)
 		encoder.Encode(false) // NACK request
 		return true
 	}
-	encoder.Encode(true) // ACK request
 
-	go IntervalSplitter(layoutStream, fileStream)
-	FileReaderGroup(fileReaders, salt, fileStream, path, unorderedStream)
-	go OrderIntervals("dst:", unorderedStream, orderedStream)
-	go Tee(orderedStream, netOutStream, checksumStream)
+	// loop for getting request until all synced
+	var request requestHeader
+	moreRequest := true
+	for moreRequest && index < len(originalFileIntervalLayout) {
+		err := decoder.Decode(&request)
+		if err != nil {
+			log.Fatal("Protocol decoder error:", err)
+			return true
+		}
 
-	// Send layout along with data hashes
-	go netSender(netOutStream, encoder, netOutDoneStream)
+		switch request.Code {
+		case syncDone:
+			moreRequest = false
 
-	// Start receiving deltas, write those and compute file hash
-	fileWritten := FileWriterGroup(fileWriters, fileWriteStream, path)
-	go netReceiver(decoder, file, netInStream, fileWriteStream, deltaReceiverDoneDone) // receiver and checker
-	go Validator(salt, checksumStream, netInStream, resultStream)
+		case syncHole:
+			/*
+			sync hole interval:
 
-	// Block till completion
-	status := true
-	err = <-errStream // Done with file loadaing, possibly aborted on error
-	if err != nil {
-		log.Error("Sync server file load aborted:", err)
-		status = false
+			1. get the hole range(start and end byte offsets)
+			2. ensure the range is within pure hole extents. If not, it will punch hole for the entire range
+			3. it will ask for continue
+			*/
+			var holeInterval Interval
+			err := decoder.Decode(&holeInterval)
+			if err != nil {
+				log.Fatal("Protocol decoder error:", err)
+				status = false
+				break
+			}
+			log.Debug("receiving hole interval: ", holeInterval)
+
+			pureHole := true
+			var current FileInterval
+			for {
+				// loop until found an interval end larger than or equal to the sync hole end
+				// note: the beginning should always be the same 
+				current = originalFileIntervalLayout[index]
+				if current.Kind != SparseHole {
+					pureHole := false
+				}
+				if current.End >= holeInterval.End {
+					break
+				}
+				index++
+			}
+
+			if current.End == holeInterval.End {
+				index++
+			} else {
+				// adjust next starting FileInterval
+				current.Begin = holeInterval.End
+			}
+			if !pureHole {
+				// TODO punch hole for the entire range from synHole
+				log.Debug("punching hole:", holeInterval)
+			}
+			
+			// send continue reply
+			encoder.Encode(replyHeader{replyMagic, continueSync})
+
+		case syncData:
+			/*
+			sync the batch data interval:
+
+			1. send the data range(start and end byte offsets) to ensure the other end
+				has pure data in this range, if so, the other end will ask for checksum
+				and calculate its own at the same time. If not, it will ask for data
+			2. waiting for the response saying checksum or data
+			3. if the other end asking for checksum, then calculate checksum and send checksum
+			4. if the other end asking for data, then send data
+			5. if the other end asking continue, then data interval is in sync and move on
+				to the next batch interval
+			*/
+			var dataInterval Interval
+			err := decoder.Decode(&dataInterval)
+			if err != nil {
+				log.Fatal("Protocol decoder error:", err)
+				status = false
+				break
+			}
+			log.Debug("receiving data interval: ", dataInterval)
+
+			pureData := true
+			var current FileInterval
+			for {
+				// loop until found an interval end larger than or equal to the sync data end
+				// note: the beginning should always be the same due to adjustment below
+				current = originalFileIntervalLayout[index]
+				if current.Kind != SparseData {
+					pureData := false
+				}
+				if current.End >= dataInterval.End {
+					break
+				}
+				index++
+			}
+
+			if current.End == dataInterval.End {
+				index++
+			} else {
+				// adjust next starting FileInterval
+				current.Begin = dataInterval.End
+			}
+			if !pureData {
+				// ask for data and wait for data, and then write data
+				receiveDataBytesAndWrite(encoder, decoder, dataInterval)
+			} else {
+				// ask client to calculate checksum, calculate local checksum, then wait
+				// for remote checksum, and then compare. If checksum matches, then send
+				// continueSync reply. Otherwise, ask for data and wait for data, and then write data
+				log.Debug("reply by asking for checksum of interval:", dataInterval)
+				encoder.Encode(replyHeader{replyMagic, sendChecksum})
+
+				// TODO calculate local checksum
+				localCheckSum := make([]byte, 20, 20)
+
+				// create a byte slice to receive checksum
+				checksum := make([]byte, 0, 20)
+				decoder.Decode(&checksum)
+
+				if !bytes.Equal(localCheckSum, checksum) {
+					receiveDataBytesAndWrite(encoder, decoder, dataInterval)
+				}
+			}
+			
+			// send continue reply
+			encoder.Encode(replyHeader{replyMagic, continueSync})
+		}
 	}
-	status = <-netOutDoneStream && status      // done sending dst hashes
-	status = <-deltaReceiverDoneDone && status // done writing dst file
-	fileWritten.Wait()                         // wait for write stream completion
-	hash := <-resultStream                     // done processing diffs
 
-	// reply to client with status
-	log.Info("Sync sending server status=", status)
-	err = encoder.Encode(status)
-	if err != nil {
-		log.Fatal("Protocol encoder error:", err)
-		return true
+	return true
+}
+
+
+func receiveDataBytesAndWrite(encoder *gob.Encoder, decoder *gob.Decoder, dataInterval Interval) {
+	// ask for data and wait for data, and then write data
+	log.Debug("reply by asking for data of interval:", dataInterval)
+	encoder.Encode(replyHeader{replyMagic, sendData})
+
+	// create a byte slice to receive data
+	dataBuffer := make([]byte, 0, dataInterval.Len())
+	decoder.Decode(&dataBuffer)
+
+	if len(dataBuffer) == dataInterval.Len() {
+		log.Info("got the correct amount of data bytes, needs to write to disk")
+		// TODO Write file with received data into the range
 	}
-	// reply with local hash
-	err = encoder.Encode(hash)
-	if err != nil {
-		log.Fatal("Protocol encoder error:", err)
-		return true
+}
+
+
+func getOriginalFileLayout(file *os.File) ([]FileInterval, error) {
+	layOutFileIntervals := make([]FileInterval, 0)
+	fiemap := NewFiemapFile(file)
+
+	// first call of Fiemap with 0 extent count will actually return total mapped ext counts
+	// we can use that to allocate extent struct slice to get details of each extent
+	extCount, _, errno := fiemap.Fiemap(0)
+	if errno != nil {
+		log.Fatal("failed to call fiemap.Fiemap(0)")
+		return layOutFileIntervals, fmt.Errorf(errno.Error())
+	} else {
+		log.Infof("extCount: %d", extCount)
+	}
+	_, exts, errno := fiemap.Fiemap(extCount)
+	if errno != nil {
+		log.Fatal("failed to call fiemap.Fiemap(extCount)")
+		return layOutFileIntervals, fmt.Errorf(errno.Error())
+	} else {
+		log.Infof("got extents[]: %d", len(exts))
 	}
 
-	var retry bool
-	err = decoder.Decode(&retry)
-	if err != nil {
-		log.Fatal("Protocol retry decoder error:", err)
-		return true
+	var lastIntervalEnd int64
+	var holeInterval Interval
+	
+	// Process extents and create a layout with holes as well for easy syncing with client
+	for index, e := range exts {
+		interval := Interval{int64(e.Logical), int64(e.Logical + e.Length)}
+		log.Printf("Extent: %s, %x", interval, e.Flags)
+
+		if lastIntervalEnd < interval.Begin {
+			// report hole
+			holeInterval = Interval{lastIntervalEnd, interval.Begin}
+			log.Printf("Here is a hole: %s", holeInterval)
+			layOutFileIntervals = append(layOutFileIntervals, FileInterval{SparseHole, holeInterval})
+		}
+		// report data
+		log.Printf("Here is a data: %s", interval)
+		lastIntervalEnd = interval.End
+		layOutFileIntervals = append(layOutFileIntervals, FileInterval{SparseData, interval})
+
+		if e.Flags & FIEMAP_EXTENT_LAST != 0 {
+			log.Printf("hit the last extent with FIEMAP_EXTENT_LAST flag, are we on last index yet ? %v", (index == len(exts) - 1))
+
+			// report last hole
+			if lastIntervalEnd < fileSize {
+				holeInterval := Interval{lastIntervalEnd, fileSize }
+				log.Printf("Here is a hole: %s", holeInterval)
+				layOutFileIntervals = append(layOutFileIntervals, FileInterval{SparseHole, holeInterval})
+			}
+		}
 	}
-	encoder.Encode(true) // ACK retry
-	if err != nil {
-		log.Fatal("Protocol retry encoder error:", err)
-		return true
-	}
-	return !retry // don't terminate server if retry expected
+
+	return layOutFileIntervals, nil
 }
 
 // Tee ordered intervals into the network and checksum checker

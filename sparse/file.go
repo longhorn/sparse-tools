@@ -42,7 +42,7 @@ func SetupFileIO(direct bool) {
 	}
 }
 
-func loadFileLayout(abortStream <-chan error, file *os.File, layoutStream chan<- FileInterval, errStream chan<- error) error {
+func  loadFileLayout(abortStream <-chan error, file *os.File, layoutStream chan<- FileInterval, errStream chan<- error) error {
 	size, err := file.Seek(0, os.SEEK_END)
 	if err != nil {
 		return err

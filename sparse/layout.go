@@ -57,9 +57,19 @@ func (i FileInterval) String() string {
 	return fmt.Sprintf("%s%v", kind, i.Interval)
 }
 
-// Storage block size in bytes
+type IntervalCheckSum struct {
+	fileInterval Interval
+	checkSum [20]byte
+}
+
+func (sum IntervalCheckSum) String() string {
+	return fmt.Sprintf("sum for interval:%s, %x", sum.fileInterval, sum.checkSum)
+}
+
 const (
+	// Storage block size in bytes
 	Blocks int64 = 4 << 10 // 4k
+	MAX_BLOCKS_TO_PROCESS = 32 * Blocks
 )
 
 // os.Seek sparse whence values.

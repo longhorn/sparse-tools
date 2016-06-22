@@ -39,13 +39,7 @@ func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	for retries := 1; retries >= 0; retries-- {
 		hashLocal, err = syncFile(localPath, addr, remotePath, timeout, retries > 0)
 		if err != nil {
-			if _, ok := err.(*HashCollsisionError); ok {
-				// retry on HahsCollisionError
-				log.Warn("SSync: retrying on chunk hash collision...")
-				continue
-			} else {
-				log.Error("SSync error:", err)
-			}
+			log.Error("SSync error:", err)
 		}
 		break
 	}
@@ -60,13 +54,13 @@ func syncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	}
 	defer file.Close()
 
-	size, err := file.Seek(0, os.SEEK_END)
+	fileSize, err := file.Seek(0, os.SEEK_END)
 	if err != nil {
 		log.Error("Failed to get size of local source file:", localPath, err)
 		return nil, err
 	}
 
-	SetupFileIO(size%Blocks == 0)
+	SetupFileIO(fileSize%Blocks == 0)
 
 	conn := connect(addr.Host, strconv.Itoa(int(addr.Port)), timeout)
 	if nil == conn {
@@ -89,31 +83,66 @@ func syncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 		return nil, err
 	}
 
-	abortStream := make(chan error)
-	layoutStream := make(chan FileInterval, 128)
-	errStream := make(chan error)
+	fiemap := NewFiemapFile(file)
 
-	// Initiate interval loading...
-	err = loadFileLayout(abortStream, file, layoutStream, errStream)
-	if err != nil {
-		log.Error("Failed to retrieve local file layout:", err)
-		return nil, err
+	// first call of Fiemap with 0 extent count will actually return total mapped ext counts
+	// we can use that to allocate extent struct slice to get details of each extent
+	extCount, _, errno := fiemap.Fiemap(0)
+	if errno != nil {
+		log.Fatal("failed to call fiemap.Fiemap(0)")
+		return fmt.Errorf(errno.Error())
+	} else {
+		log.Infof("extCount: %d", extCount)
+	}
+	_, exts, errno := fiemap.Fiemap(extCount)
+	if errno != nil {
+		log.Fatal("failed to call fiemap.Fiemap(extCount)")
+		return fmt.Errorf(errno.Error())
+	} else {
+		log.Infof("got extents[]: %d", len(exts))
 	}
 
-	fileStream := make(chan FileInterval, 128)
-	unorderedStream := make(chan HashedDataInterval, 128)
-	orderedStream := make(chan HashedDataInterval, 128)
+	var lastIntervalEnd int64
+	var holeInterval Interval
+	
+	// Process each extent
+	for index, e := range exts {
+		interval := Interval{int64(e.Logical), int64(e.Logical + e.Length)}
+		log.Printf("Extent: %s, %x", interval, e.Flags)
 
-	go IntervalSplitter(layoutStream, fileStream)
-	FileReaderGroup(fileReaders, salt, fileStream, localPath, unorderedStream)
-	go OrderIntervals("src:", unorderedStream, orderedStream)
+		// if we merge the data extents, we could use below logic, otherwise we can use a flag FIEMAP_EXTENT_MERGED
+		// TODO will compare both ways
+		if lastIntervalEnd < interval.Begin {
+			// report hole
+			holeInterval = Interval{lastIntervalEnd, interval.Begin}
+			log.Printf("Here is a hole: %s", holeInterval)
 
-	// Get remote file intervals and their hashes
-	netInStream := make(chan HashedInterval, 128)
-	netInStreamDone := make(chan bool)
-	go netDstReceiver(decoder, netInStream, netInStreamDone)
+			// syncing hole interval
+			err := SyncHoleInterval(encoder, decoder, holeInterval)
+		}
+		// report data
+		log.Printf("Here is a data: %s", interval)
+		lastIntervalEnd = interval.End
 
-	return processDiff(salt, abortStream, errStream, encoder, decoder, orderedStream, netInStream, netInStreamDone, retry)
+		// syncing data interval
+		err := SyncDataInterval(encoder, decoder, interval)
+
+		if e.Flags & FIEMAP_EXTENT_LAST != 0 {
+			log.Printf("hit the last extent with FIEMAP_EXTENT_LAST flag, are we on last index yet ? %v", (index == len(exts) - 1))
+
+			// report last hole
+			if lastIntervalEnd < fileSize {
+				holeInterval := Interval{lastIntervalEnd, fileSize }
+				log.Printf("Here is a hole: %s", holeInterval)
+				
+				// syncing hole interval
+				err := SyncHoleInterval(encoder, decoder, holeInterval)
+			}
+		}
+	}
+	encoder.Encode(requestHeader{requestMagic, syncDone})
+
+	return (nil, nil)
 }
 
 func connect(host, port string, timeout int) net.Conn {
@@ -128,6 +157,7 @@ func connect(host, port string, timeout int) net.Conn {
 	for timeNow := timeStart; timeNow.Before(timeStop); timeNow = time.Now() {
 		conn, err := net.DialTCP("tcp", nil, raddr)
 		if err == nil {
+			log.Info("connected to server")
 			return conn
 		}
 		log.Warn("Failed connection to", endpoint, "Retrying...")
@@ -167,9 +197,92 @@ func sendSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, si
 		log.Fatal("Client protocol decoder error:", err)
 		return false
 	}
+	log.Infof("got the ack back: %v", ack)	
 
 	return ack
 }
+
+func SyncHoleInterval(encoder *gob.Encoder, decoder *gob.Decoder, holeInterval Interval) error {
+		/*
+		sync hole interval:
+
+		1. send the hole range(start and end byte offsets) to ensure the other end
+			has pure hole in this range. If not, it will punch hole for the entire range
+			then it will asking for continue
+		*/
+		log.Info("syncing hole: ", holeInterval)
+		encoder.Encode(requestHeader{requestMagic, syncHole})
+		encoder.Encode(holeInterval)
+		var reply replyHeader
+		decoder.Decode(&reply)
+		if reply.Code != continueSync {
+			log.Info("got unexpected reply from server:", reply.Code)
+		} else {
+			log.Info("got continueSync reply from server")
+		}
+}
+
+func SyncDataInterval(encoder *gob.Encoder, decoder *gob.Decoder, dataInterval Interval) error {
+	const batch = 32 * Blocks
+
+	// Process data in chunks
+	for offset := dataInterval.Begin; offset < dataInterval.End; {
+		size := batch
+		if offset + size > dataInterval.End {
+			size = dataInterval.End - offset
+		}
+		batchInterval := Interval{offset, offset + size}
+
+		/*
+		sync the batch data interval:
+
+		1. send the data range(start and end byte offsets) to ensure the other end
+			has pure data in this range, if so, the other end will ask for checksum
+			and calculate its own at the same time. If not, it will ask for data
+		2. waiting for the reply asking checksum or data
+		3. if the other end asking for checksum, then calculate checksum and send checksum
+		4. if the other end asking for data, then send data
+		5. if the other end asking continue, then data interval is in sync and move on
+			to the next batch interval
+		*/
+		log.Info("syncing data batch interval: ", batchInterval)
+		encoder.Encode(requestHeader{requestMagic, syncData})
+		encoder.Encode(batchInterval)
+
+		var reply replyHeader
+		for {
+			decoder.Decode(&reply)
+
+			switch reply.Code {
+			case sendChecksum:
+				log.Info("server reply asking for checksum")
+
+				// TODO calculate checksum for the data batch interval
+				localCheckSum := make([]byte, 20, 20)
+
+				// send the checksum
+				encoder.Encode(localCheckSum)
+
+			case sendData:
+				log.Info("server reply asking for data")
+
+				// read the data into a byte slice and send
+				dataBuffer := make([]byte, dataInterval.Len(), dataInterval.Len())
+
+				// TODO read data from the file
+				// send the checksum
+				encoder.Encode(dataBuffer)
+			case continueSync:
+				log.Info("server is reporting in-sync with data batch interval")
+				break
+			}
+		}
+
+		offset += batchInterval.Len()
+	}
+
+}
+
 
 // Get remote hashed intervals
 func netDstReceiver(decoder *gob.Decoder, netInStream chan<- HashedInterval, netInStreamDone chan<- bool) {

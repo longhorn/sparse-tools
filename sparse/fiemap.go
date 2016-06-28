@@ -11,8 +11,6 @@ const (
 	ExtentSize = 56 // sizeof(struct Extent)
 
 	// FS_IOC_FIEMAP is defined in <linux/fs.h>:
-	FS_IOC_FIEMAP = 3223348747
-
 	// Defined in <linux/fiemap.h>:
 	FIEMAP_MAX_OFFSET            = ^uint64(0)
 	FIEMAP_FLAG_SYNC             = 0x0001 // sync file data before map

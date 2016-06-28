@@ -5,7 +5,7 @@ import (
 	"syscall"
 
 	fio "github.com/rancher/sparse-tools/directfio"
-	"github.com/rancher/sparse-tools/log"
+	log "github.com/Sirupsen/logrus"
 )
 
 // FoldFile folds child snapshot data into its parent
@@ -61,13 +61,13 @@ func coalesce(parentFile *os.File, childFile *os.File) error {
 				break
 			} else {
 				// unexpected errors
-				log.Fatal("Failed to syscall.Seek SEEK_DATA")
+				log.Error("Failed to syscall.Seek SEEK_DATA")
 				return err
 			}
 		}
 		hole, err = syscall.Seek(int(childFile.Fd()), data, seekHole)
 		if err != nil {
-			log.Fatal("Failed to syscall.Seek SEEK_HOLE")
+			log.Error("Failed to syscall.Seek SEEK_HOLE")
 			return err
 		}
 
@@ -75,7 +75,7 @@ func coalesce(parentFile *os.File, childFile *os.File) error {
 		// let's read from child and write to parent file block by block
 		_, err = parentFile.Seek(data, os.SEEK_SET)
 		if err != nil {
-			log.Fatal("Failed to os.Seek os.SEEK_SET")
+			log.Error("Failed to os.Seek os.SEEK_SET")
 			return err
 		}
 
@@ -85,13 +85,13 @@ func coalesce(parentFile *os.File, childFile *os.File) error {
 			// read a block from child, maybe use bufio or Reader stream
 			n, err := fio.ReadAt(childFile, buffer, offset)
 			if n != len(buffer) || err != nil {
-				log.Fatal("Failed to read from childFile")
+				log.Error("Failed to read from childFile")
 				return err
 			}
 			// write a block to parent
 			n, err = fio.WriteAt(parentFile, buffer, offset)
 			if n != len(buffer) || err != nil {
-				log.Fatal("Failed to write to parentFile")
+				log.Error("Failed to write to parentFile")
 				return err
 			}
 			offset += int64(n)

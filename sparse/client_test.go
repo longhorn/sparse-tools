@@ -2,8 +2,6 @@ package sparse
 
 import (
 	"testing"
-
-	"github.com/rancher/sparse-tools/log"
 )
 
 const localhost = "127.0.0.1"
@@ -13,10 +11,6 @@ var remoteAddr = TCPEndPoint{localhost, 5000}
 func TestSyncSmallFile1(t *testing.T) {
 	localPath := tempFilePath("ssync-small-src-")
 	remotePath := tempFilePath("ssync-small-dst-")
-
-	// Only log errors
-	log.LevelPush(log.LevelWarn)
-	defer log.LevelPop()
 
 	filesCleanup(localPath, remotePath)
 	defer filesCleanup(localPath, remotePath)
@@ -29,10 +23,6 @@ func TestSyncSmallFile1(t *testing.T) {
 func TestSyncSmallFile2(t *testing.T) {
 	localPath := tempFilePath("ssync-small-src-")
 	remotePath := tempFilePath("ssync-small-dst-")
-
-	// Only log errors
-	// log.LevelPush(log.LevelWarn)
-	// defer log.LevelPop()
 
 	filesCleanup(localPath, remotePath)
 	defer filesCleanup(localPath, remotePath)
@@ -48,10 +38,6 @@ func TestSyncSmallFile3(t *testing.T) {
 	localPath := tempFilePath("ssync-small-src-")
 	remotePath := tempFilePath("ssync-small-dst-")
 
-	// Only log errors
-	log.LevelPush(log.LevelWarn)
-	defer log.LevelPop()
-
 	filesCleanup(localPath, remotePath)
 	defer filesCleanup(localPath, remotePath)
 
@@ -64,10 +50,6 @@ func TestSyncSmallFile3(t *testing.T) {
 func TestSyncSmallFile4(t *testing.T) {
 	localPath := tempFilePath("ssync-small-src-")
 	remotePath := tempFilePath("ssync-small-dst-")
-
-	// Only log errors
-	log.LevelPush(log.LevelWarn)
-	defer log.LevelPop()
 
 	filesCleanup(localPath, remotePath)
 	defer filesCleanup(localPath, remotePath)
@@ -604,9 +586,6 @@ func TestSyncFileHashRetry(t *testing.T) {
 func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) (hashLocal []byte) {
 	localPath := tempFilePath("ssync-src-")
 	remotePath := tempFilePath("ssync-dst-")
-	// Only log errors
-	log.LevelPush(log.LevelWarn)
-	defer log.LevelPop()
 
 	filesCleanup(localPath, remotePath)
 	defer filesCleanup(localPath, remotePath)
@@ -654,9 +633,6 @@ func Benchmark_1G_InitFiles(b *testing.B) {
 }
 
 func Benchmark_1G_SendFiles_Whole(b *testing.B) {
-	log.LevelPush(log.LevelInfo)
-	defer log.LevelPop()
-
 	go TestServer(remoteAddr, timeout)
 	_, err := SyncFile(localBigPath, remoteAddr, remoteBigPath, timeout)
 
@@ -666,8 +642,6 @@ func Benchmark_1G_SendFiles_Whole(b *testing.B) {
 }
 
 func Benchmark_1G_SendFiles_Diff(b *testing.B) {
-	log.LevelPush(log.LevelInfo)
-	defer log.LevelPop()
 
 	go TestServer(remoteAddr, timeout)
 	_, err := SyncFile(localBigPath, remoteAddr, remoteBigPath, timeout)

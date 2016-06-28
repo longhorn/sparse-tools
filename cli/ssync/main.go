@@ -10,8 +10,8 @@ import (
 )
 
 func Main() {
-	defaultVerboseLogLevel := log.LevelInfo    // set if -verbose
-	defaultNonVerboseLogLevel := log.LevelWarn // set if -verbose=false
+	defaultVerboseLogLevel := log.DebugLevel    // set if -verbose
+	defaultNonVerboseLogLevel := log.InfoLevel // set if -verbose=false
 	// Command line parsing
 	verbose := flag.Bool("verbose", false, "verbose mode")
 	daemon := flag.Bool("daemon", false, "daemon mode (run on remote host)")

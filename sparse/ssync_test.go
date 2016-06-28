@@ -12,7 +12,7 @@ import (
 
 	"strconv"
 
-	"github.com/rancher/sparse-tools/log"
+	log "github.com/Sirupsen/logrus"
 )
 
 type TestFileInterval struct {
@@ -94,8 +94,7 @@ func TestRandomSyncCustomGB(t *testing.T) {
 
 	// random seed
 	seed := time.Now().UnixNano()
-	log.LevelPush(log.LevelInfo)
-	defer log.LevelPop()
+	log.SetLevel(log.InfoLevel)
 	log.Info("seed=", seed)
 
 	// default size
@@ -161,7 +160,7 @@ func RandomSync(t *testing.T, size, seed int64, srcPath, dstPath string, dstCrea
 func unstreamLayout(in <-chan TestFileInterval) []TestFileInterval {
 	layout := make([]TestFileInterval, 0, 4096)
 	for i := range in {
-		log.Trace("unstream", i)
+		log.Debug("unstream", i)
 		layout = append(layout, i)
 	}
 	return layout
@@ -172,7 +171,7 @@ func streamLayout(in []TestFileInterval) (out chan TestFileInterval) {
 
 	go func() {
 		for _, i := range in {
-			log.Trace("stream", i)
+			log.Debug("stream", i)
 			out <- i
 		}
 		close(out)
@@ -187,9 +186,9 @@ func teeLayout(in <-chan TestFileInterval) (out1 chan TestFileInterval, out2 cha
 
 	go func() {
 		for i := range in {
-			log.Trace("Tee1...")
+			log.Debug("Tee1...")
 			out1 <- i
-			log.Trace("Tee2...")
+			log.Debug("Tee2...")
 			out2 <- i
 		}
 		close(out1)

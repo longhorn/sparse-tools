@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rancher/sparse-tools/log"
+	log "github.com/Sirupsen/logrus"
 )
 
 func tempFilePath() string {
@@ -54,8 +54,7 @@ func verifySampleDurations(m []model) bool {
 }
 
 func Test1(t *testing.T) {
-	log.LevelPush(log.LevelInfo)
-	defer log.LevelPop()
+	log.SetLevel(log.ErrorLevel)
 	resetStats(4)
 
 	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
@@ -68,8 +67,7 @@ func Test1(t *testing.T) {
 }
 
 func Test2(t *testing.T) {
-	log.LevelPush(log.LevelInfo)
-	defer log.LevelPop()
+	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
 	Sample(time.Now(), time.Duration(1000), "replica-a", OpRead, 1024, true)
@@ -79,8 +77,7 @@ func Test2(t *testing.T) {
 }
 
 func Test3(t *testing.T) {
-	log.LevelPush(log.LevelInfo)
-	defer log.LevelPop()
+	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
 	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
@@ -96,8 +93,7 @@ func Test3(t *testing.T) {
 }
 
 func Test4(t *testing.T) {
-	log.LevelPush(log.LevelInfo)
-	defer log.LevelPop()
+	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
 	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
@@ -120,8 +116,7 @@ func Test4(t *testing.T) {
 }
 
 func Test5(t *testing.T) {
-	log.LevelPush(log.LevelInfo)
-	defer log.LevelPop()
+	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
 	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
@@ -142,8 +137,7 @@ func Test5(t *testing.T) {
 }
 
 func Test6(t *testing.T) {
-	log.LevelPush(log.LevelInfo)
-	defer log.LevelPop()
+	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
 	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
@@ -177,8 +171,7 @@ func Test6(t *testing.T) {
 }
 
 func Test7(t *testing.T) {
-	log.LevelPush(log.LevelInfo)
-	defer log.LevelPop()
+	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
 	var pending []OpID
@@ -215,8 +208,7 @@ func Test7(t *testing.T) {
 
 // test ProcessLimited
 func Test8(t *testing.T) {
-	log.LevelPush(log.LevelInfo)
-	defer log.LevelPop()
+	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
 	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
@@ -232,8 +224,7 @@ func Test8(t *testing.T) {
 
 // test ProcessLimited; unspecified limit
 func Test9(t *testing.T) {
-	log.LevelPush(log.LevelInfo)
-	defer log.LevelPop()
+	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
 	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
@@ -249,8 +240,7 @@ func Test9(t *testing.T) {
 
 // test targetID
 func Test10(t *testing.T) {
-	log.LevelPush(log.LevelInfo)
-	defer log.LevelPop()
+	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
 	Sample(time.Now(), time.Duration(1000), "a", OpRead, 1024, true)
@@ -303,8 +293,7 @@ func Benchmark_C100(b *testing.B) {
 }
 
 func Benchmark_C100Flush(b *testing.B) {
-	log.LevelPush(log.LevelDebug)
-	defer log.LevelPop()
+	log.SetLevel(log.DebugLevel)
 	go func() {
 		ticks := time.Tick(time.Millisecond)
 		for _ = range ticks {

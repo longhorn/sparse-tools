@@ -5,13 +5,13 @@ import (
 	"os"
 	"testing"
 
-	"log"
 	"time"
 
 	"io/ioutil"
 
 	"syscall"
 
+	log "github.com/Sirupsen/logrus"
 	fio "github.com/rancher/sparse-tools/directfio"
 )
 
@@ -231,7 +231,7 @@ func ioTest(title string, b *testing.B, path string, threads, batch int, io func
 	}
 	stop := time.Now().UnixNano()
 	if len(title) > 0 {
-		log.Println(title, ":", threads, "(threads) batch=", batch, "(blocks)", "thruput=", 1000000*fileSize/(1<<20)/((stop-start)/1000), "(MB/s)")
+		log.Debug(title, ":", threads, "(threads) batch=", batch, "(blocks)", "thruput=", 1000000*fileSize/(1<<20)/((stop-start)/1000), "(MB/s)")
 	}
 }
 
@@ -246,11 +246,11 @@ func BenchmarkIO8(b *testing.B) {
 	defer f.Close()
 
 	f.Truncate(fileSize)
-	log.Println("")
+	log.Debug("")
 	ioTest("pilot write", b, path, 8, 32, write)
 
 	for batch := 32; batch >= 1; batch >>= 1 {
-		log.Println("")
+		log.Debug("")
 		for threads := 1; threads <= 8; threads <<= 1 {
 			ioTest("write", b, path, threads, batch, write)
 		}
@@ -271,11 +271,11 @@ func BenchmarkIO8u(b *testing.B) {
 	}
 	defer f.Close()
 	f.Truncate(fileSize)
-	log.Println("")
+	log.Debug("")
 	ioTest("pilot write", b, path, 8, 32, writeUnaligned)
 
 	for batch := 32; batch >= 1; batch >>= 1 {
-		log.Println("")
+		log.Debug("")
 		for threads := 1; threads <= 8; threads <<= 1 {
 			ioTest("unaligned write", b, path, threads, batch, writeUnaligned)
 		}

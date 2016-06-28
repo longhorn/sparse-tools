@@ -1,4 +1,7 @@
-import:
-- package: github.com/frostschutz/go-fibmap
-  version: 5fc9f8c1ed479f20414771a17b9686ee77029676
-  repo:    https://github.com/rancher/go-fibmap.git
+# trash.conf
+
+# package
+github.com/rancher/sparse-tools
+
+github.com/Sirupsen/logrus	v0.10.0-19-gf3cfb45
+golang.org/x/sys	62bee03

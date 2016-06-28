@@ -11,7 +11,9 @@ const (
 	ExtentSize = 56 // sizeof(struct Extent)
 
 	// FS_IOC_FIEMAP is defined in <linux/fs.h>:
-	// Defined in <linux/fiemap.h>:
+	FS_IOC_FIEMAP = 3223348747
+
+	// FIEMAP_MAX_OFFSET is defined in <linux/fiemap.h>:
 	FIEMAP_MAX_OFFSET            = ^uint64(0)
 	FIEMAP_FLAG_SYNC             = 0x0001 // sync file data before map
 	FIEMAP_FLAG_XATTR            = 0x0002 // map extended attribute tree
@@ -29,7 +31,7 @@ const (
 	FIEMAP_EXTENT_MERGED         = 0x1000 // File does not natively support extents. Result merged for efficiency.
 	FIEMAP_EXTENT_SHARED         = 0x2000 // Space shared with other files.
 
-	// Defined in <linux/falloc.h>:
+	// FALLOC_FL_KEEP_SIZE is defined in <linux/falloc.h>:
 	FALLOC_FL_KEEP_SIZE    = 0x01 // default is extend size
 	FALLOC_FL_PUNCH_HOLE   = 0x02 // de-allocates range
 	FALLOC_FL_NO_HIDE_STAE = 0x04 // reserved codepoint

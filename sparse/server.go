@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"syscall"
 	"time"
-	"bytes"
 
 	log "github.com/Sirupsen/logrus"
 )
@@ -131,35 +130,6 @@ func server(addr TCPEndPoint, serveOnce /*test flag*/ bool, timeout int) {
 		}
 	}
 	log.Info("Sync server exit.")
-}
-
-type requestCode int
-
-const (
-	requestMagic    requestCode = 31415926
-	syncRequestCode requestCode = 1 + iota
-	syncHole
-	syncData
-	syncDone
-)
-
-type requestHeader struct {
-	Magic requestCode
-	Code  requestCode
-}
-
-type replyCode int
-
-const (
-	replyMagic    replyCode = 31415928
-	continueSync  replyCode = 1 + iota
-	sendChecksum
-	sendData
-)
-
-type replyHeader struct {
-	Magic replyCode
-	Code  replyCode
 }
 
 // returns true if no retry is necessary

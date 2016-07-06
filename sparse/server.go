@@ -1,17 +1,80 @@
 package sparse
 
 import (
-	"crypto/sha1"
-	"encoding/binary"
+	"bytes"
 	"encoding/gob"
-	"hash"
+	"fmt"
 	"net"
 	"os"
+	"sort"
 	"strconv"
 	"time"
 
-	"github.com/rancher/sparse-tools/log"
+	log "github.com/Sirupsen/logrus"
 )
+
+type requestCode int
+
+const (
+	requestMagic    requestCode = 31415926
+	syncRequestCode requestCode = iota
+	syncHole
+	syncData
+	syncDone
+)
+
+func (reqCode requestCode) String() string {
+	var s string
+	if reqCode == syncRequestCode {
+		s = "syncRequestCode"
+	} else if reqCode == syncHole {
+		s = "syncHole"
+	} else if reqCode == syncData {
+		s = "syncData"
+	} else if reqCode == syncDone {
+		s = "syncDone"
+	}
+	return s
+}
+
+type requestHeader struct {
+	Magic requestCode
+	Code  requestCode
+}
+
+func (req requestHeader) String() string {
+	return fmt.Sprintf("Request [Magic: %s, Code: %s]", req.Magic, req.Code)
+}
+
+type replyCode int
+
+const (
+	replyMagic   replyCode = 31415928
+	continueSync replyCode = iota
+	sendChecksum
+	sendData
+)
+
+func (repCode replyCode) String() string {
+	var s string
+	if repCode == continueSync {
+		s = "continueSync"
+	} else if repCode == sendChecksum {
+		s = "sendChecksum"
+	} else if repCode == sendData {
+		s = "sendData"
+	}
+	return s
+}
+
+type replyHeader struct {
+	Magic replyCode
+	Code  replyCode
+}
+
+func (rep replyHeader) String() string {
+	return fmt.Sprintf("Reply [Magic: %s, Code: %s]", rep.Magic, rep.Code)
+}
 
 // Server daemon
 func Server(addr TCPEndPoint, timeout int) {
@@ -23,10 +86,6 @@ func TestServer(addr TCPEndPoint, timeout int) {
 	server(addr, true, timeout)
 }
 
-const fileReaders = 1
-const fileWriters = 1
-const verboseServer = true
-
 func server(addr TCPEndPoint, serveOnce /*test flag*/ bool, timeout int) {
 	serverConnectionTimeout := time.Duration(timeout) * time.Second
 	// listen on all interfaces
@@ -36,9 +95,16 @@ func server(addr TCPEndPoint, serveOnce /*test flag*/ bool, timeout int) {
 		log.Fatal("Connection listener address resolution error:", err)
 	}
 	ln, err := net.ListenTCP("tcp", laddr)
-	if err != nil {
+	listenRetries := 5
+	for ; err != nil && listenRetries > 0; listenRetries-- {
+		log.Error("Connection listener error:", err)
+		log.Error("retrying ...")
+		ln, err = net.ListenTCP("tcp", laddr)
+	}
+	if err != nil && listenRetries == 0 {
 		log.Fatal("Connection listener error:", err)
 	}
+
 	defer ln.Close()
 	ln.SetDeadline(time.Now().Add(serverConnectionTimeout))
 	log.Info("Sync server is up...")
@@ -63,359 +129,397 @@ func server(addr TCPEndPoint, serveOnce /*test flag*/ bool, timeout int) {
 	log.Info("Sync server exit.")
 }
 
-type requestCode int
-
-const (
-	requestMagic    requestCode = 31415926
-	syncRequestCode requestCode = 1
-)
-
-type requestHeader struct {
-	Magic requestCode
-	Code  requestCode
-}
-
 // returns true if no retry is necessary
 func serveConnection(conn net.Conn) bool {
 	defer conn.Close()
 
 	decoder := gob.NewDecoder(conn)
+	encoder := gob.NewEncoder(conn)
+	session := &SyncSessionServer{encoder, decoder}
+
+	return session.serveSession()
+}
+
+type SyncSessionServer struct {
+	encoder *gob.Encoder
+	decoder *gob.Decoder
+}
+
+func (session *SyncSessionServer) send(e interface{}) error {
+	return session.encoder.Encode(e)
+}
+
+func (session *SyncSessionServer) receive(e interface{}) error {
+	return session.decoder.Decode(e)
+}
+
+func (session *SyncSessionServer) serveSession() bool {
 	var request requestHeader
-	err := decoder.Decode(&request)
+	err := session.receive(&request)
 	if err != nil {
-		log.Fatal("Protocol decoder error:", err)
+		log.Error("Decode request error:", err)
 		return true
 	}
 	if requestMagic != request.Magic {
-		log.Error("Bad request")
+		log.Error("Bad request, wrong Magic code in request")
 		return true
 	}
 
 	switch request.Code {
 	case syncRequestCode:
 		var path string
-		err := decoder.Decode(&path)
+		err := session.receive(&path)
 		if err != nil {
-			log.Fatal("Protocol decoder error:", err)
+			log.Error("decode path error:", err)
 			return true
 		}
+		log.Debug("got the file path: ", path)
+
 		var size int64
-		err = decoder.Decode(&size)
+		err = session.receive(&size)
 		if err != nil {
-			log.Fatal("Protocol decoder error:", err)
+			log.Error("decode size error:", err)
 			return true
 		}
-		var salt []byte
-		err = decoder.Decode(&salt)
-		if err != nil {
-			log.Fatal("Protocol decoder error:", err)
-			return true
-		}
-		encoder := gob.NewEncoder(conn)
-		return serveSyncRequest(encoder, decoder, path, size, salt)
+		log.Debugf("got the file size: %d", size)
+
+		return session.serveSyncRequest(path, size)
 	}
 	return true
 }
 
 // returns true if no retry is necessary
-func serveSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, size int64, salt []byte) bool {
+func (session *SyncSessionServer) serveSyncRequest(path string, size int64) bool {
 	directFileIO := size%Blocks == 0
-	SetupFileIO(directFileIO)
+	log.Debugf("setting up directIo: %v, size=%d", (size%Blocks == 0), size)
 
-	// Open destination file
-	file, err := fileOpen(path, os.O_RDWR, 0666)
+	var fileIo FileIoProcessor
+	var err error
+	if directFileIO {
+		fileIo, err = NewDirectFileIoProcessor(path, os.O_RDWR, 0666, true)
+	} else {
+		fileIo, err = NewBufferedFileIoProcessor(path, os.O_RDWR, 0666, true)
+	}
 	if err != nil {
-		file, err = os.Create(path)
+		log.Errorf("Failed to open/create local source file, path: %s, err: %s", path, err)
+		err = session.send(false) // NACK request
 		if err != nil {
-			log.Error("Failed to create file:", string(path), err)
-			encoder.Encode(false) // NACK request
+			log.Error("encode ack error: ", err)
 			return true
 		}
+		return true
 	}
-	// Setup close sequence
-	if directFileIO {
-		defer file.Sync()
+
+	// Setup close sequence, LIFO order
+	defer fileIo.Close()
+	if !directFileIO {
+		defer fileIo.Sync()
 	}
-	defer file.Close()
 
 	// Resize the file
-	if err = file.Truncate(size); err != nil {
+	if err = fileIo.Truncate(size); err != nil {
 		log.Error("Failed to resize file:", string(path), err)
-		encoder.Encode(false) // NACK request
-		return true
-	}
-
-	// open file
-	fileRO, err := fileOpen(path, os.O_RDONLY, 0)
-	if err != nil {
-		log.Error("Failed to open file for reading:", string(path), err)
-		encoder.Encode(false) // NACK request
-		return true
-	}
-	defer fileRO.Close()
-
-	abortStream := make(chan error)
-	layoutStream := make(chan FileInterval, 128)
-	errStream := make(chan error)
-
-	fileStream := make(chan FileInterval, 128)
-	unorderedStream := make(chan HashedDataInterval, 128)
-	orderedStream := make(chan HashedDataInterval, 128)
-	netOutStream := make(chan HashedInterval, 128)
-	netOutDoneStream := make(chan bool)
-
-	netInStream := make(chan DataInterval, 128)
-	fileWriteStream := make(chan DataInterval, 128)
-	deltaReceiverDoneDone := make(chan bool)
-	checksumStream := make(chan DataInterval, 128)
-	resultStream := make(chan []byte)
-
-	// Initiate interval loading...
-	err = loadFileLayout(abortStream, fileRO, layoutStream, errStream)
-	if err != nil {
-		encoder.Encode(false) // NACK request
-		return true
-	}
-	encoder.Encode(true) // ACK request
-
-	go IntervalSplitter(layoutStream, fileStream)
-	FileReaderGroup(fileReaders, salt, fileStream, path, unorderedStream)
-	go OrderIntervals("dst:", unorderedStream, orderedStream)
-	go Tee(orderedStream, netOutStream, checksumStream)
-
-	// Send layout along with data hashes
-	go netSender(netOutStream, encoder, netOutDoneStream)
-
-	// Start receiving deltas, write those and compute file hash
-	fileWritten := FileWriterGroup(fileWriters, fileWriteStream, path)
-	go netReceiver(decoder, file, netInStream, fileWriteStream, deltaReceiverDoneDone) // receiver and checker
-	go Validator(salt, checksumStream, netInStream, resultStream)
-
-	// Block till completion
-	status := true
-	err = <-errStream // Done with file loadaing, possibly aborted on error
-	if err != nil {
-		log.Error("Sync server file load aborted:", err)
-		status = false
-	}
-	status = <-netOutDoneStream && status      // done sending dst hashes
-	status = <-deltaReceiverDoneDone && status // done writing dst file
-	fileWritten.Wait()                         // wait for write stream completion
-	hash := <-resultStream                     // done processing diffs
-
-	// reply to client with status
-	log.Info("Sync sending server status=", status)
-	err = encoder.Encode(status)
-	if err != nil {
-		log.Fatal("Protocol encoder error:", err)
-		return true
-	}
-	// reply with local hash
-	err = encoder.Encode(hash)
-	if err != nil {
-		log.Fatal("Protocol encoder error:", err)
-		return true
-	}
-
-	var retry bool
-	err = decoder.Decode(&retry)
-	if err != nil {
-		log.Fatal("Protocol retry decoder error:", err)
-		return true
-	}
-	encoder.Encode(true) // ACK retry
-	if err != nil {
-		log.Fatal("Protocol retry encoder error:", err)
-		return true
-	}
-	return !retry // don't terminate server if retry expected
-}
-
-// Tee ordered intervals into the network and checksum checker
-func Tee(orderedStream <-chan HashedDataInterval, netOutStream chan<- HashedInterval, checksumStream chan<- DataInterval) {
-	for r := range orderedStream {
-		netOutStream <- HashedInterval{r.FileInterval, r.Hash}
-		checksumStream <- DataInterval{r.FileInterval, r.Data}
-	}
-	close(netOutStream)
-	close(checksumStream)
-}
-
-func netSender(netOutStream <-chan HashedInterval, encoder *gob.Encoder, netOutDoneStream chan<- bool) {
-	for r := range netOutStream {
-		if verboseServer {
-			log.Debug("Server.netSender: sending", r.FileInterval)
-		}
-		err := encoder.Encode(r)
+		err = session.send(false) // NACK request
 		if err != nil {
-			log.Fatal("Protocol encoder error:", err)
-			netOutDoneStream <- false
-			return
+			log.Error("encode ack error:", err)
+			return true
 		}
-	}
 
-	rEOF := HashedInterval{FileInterval{SparseIgnore, Interval{}}, make([]byte, 0)}
-	if rEOF.Len() != 0 {
-		log.Fatal("Server.netSender internal error")
+		return true
 	}
-	// err := encoder.Encode(HashedInterval{FileInterval{}, make([]byte, 0)})
-	err := encoder.Encode(rEOF)
+	log.Debugf("truncated file into size: %d", size)
+
+	// the starting point of interval sync request within originalFileIntervalLayout slice
+	//index := 0
+	localHoleIntervals, localDataIntervals, err := getFileLayout(fileIo)
 	if err != nil {
-		log.Fatal("Protocol encoder error:", err)
-		netOutDoneStream <- false
-		return
-	}
-	if verboseServer {
-		log.Debug("Server.netSender: finished sending hashes")
-	}
-	netOutDoneStream <- true
-}
-
-func netReceiver(decoder *gob.Decoder, file *os.File, netInStream chan<- DataInterval, fileStream chan<- DataInterval, deltaReceiverDone chan<- bool) {
-	// receive & process data diff
-	status := true
-	for status {
-		var delta FileInterval
-		err := decoder.Decode(&delta)
+		log.Error("Failed to getFileLayout", err)
+		err = session.send(false) // NACK request
 		if err != nil {
-			log.Fatal("Protocol decoder error:", err)
-			status = false
-			break
+			log.Error("encode ack error:", err)
+			return true
 		}
-		log.Debug("receiving delta [", delta, "]")
-		if 0 == delta.Len() {
-			log.Debug("received end of transimission marker")
-			break // end of diff
+		return true
+	}
+	log.Debugf("localHoleIntervals: %s", localHoleIntervals)
+	log.Debugf("localDataIntervals: %s", localDataIntervals)
+
+	// ack == true, so we can start syncing with file content from remote endpoint
+	err = session.send(true)
+	if err != nil {
+		log.Error("encode ack error:", err)
+		return true
+	}
+
+	// loop for getting request until all synced
+	var request requestHeader
+	moreRequest := true
+	for moreRequest {
+		log.Debug("decoding...")
+		err := session.receive(&request)
+		if err != nil {
+			log.Error("decode requestHeader error:", err)
+			return true
 		}
-		switch delta.Kind {
-		case SparseData:
-			// Receive data
-			var data []byte
-			err = decoder.Decode(&data)
+		log.Debugf("request: %s", request)
+
+		switch request.Code {
+
+		case syncDone:
+			moreRequest = false
+			log.Debug("got syncDone")
+
+		case syncHole:
+			err := session.serveSyncHole(fileIo, localHoleIntervals)
 			if err != nil {
-				log.Fatal("Protocol data decoder error:", err)
-				status = false
-				break
+				return true
 			}
-			if int64(len(data)) != delta.Len() {
-				log.Fatal("Failed to receive data, expected=", delta.Len(), "received=", len(data))
-				status = false
-				break
+
+		case syncData:
+			err := session.serveSyncData(fileIo, localDataIntervals)
+			if err != nil {
+				return true
 			}
-			// Push for writing and vaildator processing
-			fileStream <- DataInterval{delta, data}
-			netInStream <- DataInterval{delta, data}
-
-		case SparseHole:
-			// Push for writing and vaildator processing
-			fileStream <- DataInterval{delta, make([]byte, 0)}
-			netInStream <- DataInterval{delta, make([]byte, 0)}
-
-		case SparseIgnore:
-			// Push for vaildator processing
-			netInStream <- DataInterval{delta, make([]byte, 0)}
-			log.Debug("ignoring...")
 		}
 	}
 
-	log.Debug("Server.netReceiver done, sync")
-	close(netInStream)
-	close(fileStream)
-	deltaReceiverDone <- status
+	return true
 }
 
-func logData(prefix string, data []byte) {
-	size := len(data)
-	if size > 0 {
-		log.Debug("\t", prefix, "of", size, "bytes", data[0], "...")
-	} else {
-		log.Debug("\t", prefix, "of", size, "bytes")
+func (session *SyncSessionServer) serveSyncHole(file FileIoProcessor, localHoleIntervals []Interval) error {
+	/*
+		sync hole interval:
+
+		1. get the hole range(start and end byte offsets)
+		2. ensure the range is within pure hole extents. If not, it will punch hole for the entire range
+		3. it will ask for continue
+	*/
+	var remoteHoleInterval Interval
+	err := session.receive(&remoteHoleInterval)
+	if err != nil {
+		log.Error("decode remoteHoleInterval error:", err)
+		return err
 	}
-}
+	log.Debug("receiving remote hole interval: ", remoteHoleInterval)
 
-func hashFileData(fileHasher hash.Hash, dataLen int64, data []byte) {
-	// Hash hole length or data if any
-	if len(data) == 0 {
-		// hash hole
-		hole := make([]byte, 8)
-		binary.PutVarint(hole, dataLen)
-		fileHasher.Write(hole)
+	pureHole := false
 
+	// do a binary search of the starting offset of dataInterval through the layout
+	i := sort.Search(len(localHoleIntervals),
+		func(i int) bool { return remoteHoleInterval.Begin < localHoleIntervals[i].Begin })
+	log.Debug("found remoteHoleInterval to insert position in localHoleIntervals is: ", i)
+
+	// i == 0 when insertion point is at the head, or len(originalFileIntervalLayout) == 0
+	// so not within any data range for sure. Otherwise i > 0, the searching
+	// point(dataInterval.Begin) is definitely less than originalFileIntervalLayout[i].Begin,
+	// and also dataInterval.Begin >= originalFileIntervalLayout[i-1].Begin by f() closure.
+	// So we just need to check if both Begin and End of dataInterval is <= originalFileIntervalLayout[i-1].End.
+	// If so, then within that original data extent, otherwise not. Assumption here is:
+	// adjacent data extents don't exist, they are all seperated by holes. If assumption
+	// fails, we basically asking for data transfer directly without checking if checksum matches
+	// or not. But that is just extra overhead. We know this assumption
+	// doesn't fail often for sure. So this is acceptable.
+	if i > 0 &&
+		remoteHoleInterval.Begin <= localHoleIntervals[i-1].End &&
+		remoteHoleInterval.End <= localHoleIntervals[i-1].End {
+		log.Debugf("remoteHoleInterval %s is within localHoleIntervals", remoteHoleInterval)
+		pureHole = true
 	} else {
-		fileHasher.Write(data)
+		log.Debugf("remoteHoleInterval %s is not within localHoleIntervals", remoteHoleInterval)
 	}
+	if !pureHole {
+		log.Debug("punching hole:", remoteHoleInterval)
+		fiemap := NewFiemapFile(file.getFile())
+		err := fiemap.PunchHole(remoteHoleInterval.Begin, remoteHoleInterval.Len())
+		if err != nil {
+			log.Errorf("PunchHole: %s error: %s", remoteHoleInterval, err)
+			return err
+		}
+	}
+
+	err = session.send(replyHeader{replyMagic, continueSync})
+	if err != nil {
+		log.Error("encode replyHeader error:", err)
+		return err
+	}
+
+	return nil
 }
 
-// Validator merges source and diff data; produces hash of the destination file
-func Validator(salt []byte, checksumStream, netInStream <-chan DataInterval, resultStream chan<- []byte) {
-	fileHasher := sha1.New()
-	//TODO: error handling
-	fileHasher.Write(salt)
-	r := <-checksumStream // original dst file data
-	q := <-netInStream    // diff data
-	for q.Len() != 0 || r.Len() != 0 {
-		if r.Len() == 0 /*end of dst file*/ {
-			// Hash diff data
-			if verboseServer {
-				logData("RHASH", q.Data)
+func (session *SyncSessionServer) serveSyncData(file FileIoProcessor, localDataIntervals []Interval) error {
+	/*
+		sync the batch data interval:
+
+		1. send the data range(start and end byte offsets) to ensure the other end
+			has pure data in this range, if so, the other end will ask for checksum
+			and calculate its own at the same time. If not, it will ask for data
+		2. waiting for the response saying checksum or data
+		3. if the other end asking for checksum, then calculate checksum and send checksum
+		4. if the other end asking for data, then send data
+		5. if the other end asking continue, then data interval is in sync and move on
+			to the next batch interval
+	*/
+	var dataInterval Interval
+	err := session.receive(&dataInterval)
+	if err != nil {
+		log.Error("decode dataInterval error:", err)
+		return err
+	}
+	log.Debug("receiving data interval: ", dataInterval)
+
+	pureData := false
+
+	// do a binary search of the starting offset of dataInterval through the layout
+	i := sort.Search(len(localDataIntervals),
+		func(i int) bool { return dataInterval.Begin < localDataIntervals[i].Begin })
+	log.Debug("found position to insert position in localDataIntervals is: ", i)
+
+	// i == 0 when insertion point is at the head, or len(originalFileIntervalLayout) == 0
+	// so not within any data range for sure. Otherwise i > 0, the searching
+	// point(dataInterval.Begin) is definitely less than originalFileIntervalLayout[i].Begin,
+	// and also dataInterval.Begin >= originalFileIntervalLayout[i-1].Begin by f() closure.
+	// So we just need to check if both Begin and End of dataInterval is <= originalFileIntervalLayout[i-1].End.
+	// If so, then within that original data extent, otherwise not. Assumption here is:
+	// adjacent data extents don't exist, they are all seperated by holes. If assumption
+	// fails, we basically asking for data transfer directly without checking if checksum matches
+	// or not. But that is just extra overhead. We know this assumption
+	// doesn't fail often for sure. So this is acceptable.
+	if i > 0 &&
+		dataInterval.Begin <= localDataIntervals[i-1].End &&
+		dataInterval.End <= localDataIntervals[i-1].End {
+		log.Debugf("dataInterval %s is within localDataIntervals", dataInterval)
+		pureData = true
+	} else {
+		log.Debugf("dataInterval %s is not within localDataIntervals", dataInterval)
+	}
+	if !pureData {
+		// ask for data and wait for data, and then write data
+		log.Debug("asking for data")
+		err := session.receiveDataAndWriteFile(file, dataInterval)
+		if err != nil {
+			return err
+		}
+		log.Debug("got and written data")
+	} else {
+		// ask client to calculate checksum, calculate local checksum, then wait
+		// for remote checksum, and then compare. If checksum matches, then send
+		// continueSync reply. Otherwise, ask for data and wait for data, and then write data
+		log.Debug("reply by asking for checksum of interval:", dataInterval)
+		err := session.send(replyHeader{replyMagic, sendChecksum})
+		if err != nil {
+			log.Error("encode replyHeader error:", err)
+			return err
+		}
+		localCheckSum, err := HashDataInterval(file, dataInterval)
+		if err != nil {
+			log.Errorf("HashDataInterval locally: %s failed, err: %s", dataInterval, err)
+			return err
+		}
+		var checksum []byte
+		err = session.receive(&checksum)
+		if err != nil {
+			log.Error("encode replyHeader error:", err)
+			return err
+		}
+		log.Debug("got checksum:", checksum)
+		if !bytes.Equal(localCheckSum, checksum) {
+			log.Debug("checksum is not good")
+			log.Debug("remote checksum:", checksum)
+			log.Debug("local checksum:", localCheckSum)
+			log.Debug("asking for data")
+			err := session.receiveDataAndWriteFile(file, dataInterval)
+			if err != nil {
+				return err
 			}
-			hashFileData(fileHasher, q.Len(), q.Data)
-			q = <-netInStream
-		} else if q.Len() == 0 /*end of diff file*/ {
-			// Hash original data
-			if verboseServer {
-				logData("RHASH", r.Data)
-			}
-			hashFileData(fileHasher, r.Len(), r.Data)
-			r = <-checksumStream
+			log.Debug("got and written data")
 		} else {
-			qi := q.Interval
-			ri := r.Interval
-			if qi.Begin == ri.Begin {
-				if qi.End > ri.End {
-					log.Fatal("Server.Validator internal error, diff=", q.FileInterval, "local=", r.FileInterval)
-				} else if qi.End < ri.End {
-					// Hash diff data
-					if verboseServer {
-						log.Debug("Server.Validator: hashing diff", q.FileInterval, r.FileInterval)
-					}
-					if verboseServer {
-						logData("RHASH", q.Data)
-					}
-					hashFileData(fileHasher, q.Len(), q.Data)
-					r.Begin = q.End
-					q = <-netInStream
-				} else {
-					if q.Kind == SparseIgnore {
-						// Hash original data
-						if verboseServer {
-							log.Debug("Server.Validator: hashing original", r.FileInterval)
-						}
-						if verboseServer {
-							logData("RHASH", r.Data)
-						}
-						hashFileData(fileHasher, r.Len(), r.Data)
-					} else {
-						// Hash diff data
-						if verboseServer {
-							log.Debug("Server.Validator: hashing diff", q.FileInterval)
-						}
-						if verboseServer {
-							logData("RHASH", q.Data)
-						}
-						hashFileData(fileHasher, q.Len(), q.Data)
-					}
-					q = <-netInStream
-					r = <-checksumStream
-				}
-			} else {
-				log.Fatal("Server.Validator internal error, diff=", q.FileInterval, "local=", r.FileInterval)
+			log.Debug("checksum is good")
+		}
+	}
+
+	log.Debug("asking for continueSync")
+	err = session.send(replyHeader{replyMagic, continueSync})
+	if err != nil {
+		log.Error("encode replyHeader error:", err)
+		return err
+	}
+
+	return nil
+}
+
+func (session *SyncSessionServer) receiveDataAndWriteFile(file FileIoProcessor, dataInterval Interval) error {
+	// ask for data and wait for data, and then write data
+	log.Debug("reply by asking for data of interval:", dataInterval)
+	err := session.send(replyHeader{replyMagic, sendData})
+	if err != nil {
+		log.Error("encode replyHeader error:", err)
+		return err
+	}
+
+	// create a byte slice to receive data
+	var dataBuffer []byte
+	err = session.receive(&dataBuffer)
+	if err != nil {
+		log.Error("decode dataBuffer error:", err)
+		return err
+	}
+	log.Debugf("receiveDataAndWriteFile: got data byte count: %d", len(dataBuffer))
+	log.Debug("needs to write to disk")
+
+	// Write file with received data into the range
+	err = WriteDataInterval(file, dataInterval, dataBuffer)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func getFileLayout(file FileIoProcessor) ([]Interval, []Interval, error) {
+	fileSize, err := file.Seek(0, os.SEEK_END)
+	if err != nil {
+		log.Error("Failed to get size of the file:", err)
+		return nil, nil, err
+	}
+
+	var holeIntervals []Interval
+	var dataIntervals []Interval
+
+	exts, err := GetFiemapExtents(file)
+	if err != nil {
+		return holeIntervals, dataIntervals, err
+	}
+
+	var lastIntervalEnd int64
+	var holeInterval Interval
+
+	// Process extents and create a layout with holes as well for easy syncing with client
+	for index, e := range exts {
+		interval := Interval{int64(e.Logical), int64(e.Logical + e.Length)}
+		log.Debugf("Extent: %s, %x", interval, e.Flags)
+
+		if lastIntervalEnd < interval.Begin {
+			// report hole
+			holeInterval = Interval{lastIntervalEnd, interval.Begin}
+			log.Debugf("Here is a hole: %s", holeInterval)
+			holeIntervals = append(holeIntervals, holeInterval)
+		}
+		// report data
+		log.Debugf("Here is a data: %s", interval)
+		lastIntervalEnd = interval.End
+		dataIntervals = append(dataIntervals, interval)
+
+		if e.Flags&FIEMAP_EXTENT_LAST != 0 {
+			log.Debugf("hit the last extent with FIEMAP_EXTENT_LAST flag, are we on last index yet ? %v", (index == len(exts)-1))
+
+			// report last hole
+			if lastIntervalEnd < fileSize {
+				holeInterval := Interval{lastIntervalEnd, fileSize}
+				log.Debugf("Here is a hole: %s", holeInterval)
+				holeIntervals = append(holeIntervals, holeInterval)
 			}
 		}
 	}
 
-	if verboseServer {
-		log.Debug("Server.Validator: finished")
-	}
-	resultStream <- fileHasher.Sum(nil)
+	return holeIntervals, dataIntervals, nil
 }

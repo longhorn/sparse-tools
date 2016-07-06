@@ -3,7 +3,7 @@ package sparse
 import (
 	"testing"
 
-	"github.com/rancher/sparse-tools/log"
+	log "github.com/Sirupsen/logrus"
 )
 
 func TestFoldLayout1(t *testing.T) {
@@ -122,8 +122,7 @@ func testFoldFile(t *testing.T, layoutFrom, layoutTo []FileInterval) (hashLocal 
 	remotePath := tempFilePath("sfold-dst-")
 
 	// Only log errors
-	log.LevelPush(log.LevelError)
-	defer log.LevelPop()
+	log.SetLevel(log.ErrorLevel)
 
 	filesCleanup(localPath, remotePath)
 	defer filesCleanup(localPath, remotePath)

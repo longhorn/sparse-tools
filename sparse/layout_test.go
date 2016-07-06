@@ -4,8 +4,6 @@ import (
 	"os"
 	"reflect"
 	"testing"
-
-	"github.com/rancher/sparse-tools/log"
 )
 
 var name = tempFilePath("")
@@ -128,9 +126,6 @@ func TestPunchHole0(t *testing.T) {
 }
 
 func layoutTest(t *testing.T, name string, layoutModel, layoutExpected []FileInterval) {
-	log.LevelPush(log.LevelInfo)
-	defer log.LevelPop()
-
 	defer fileCleanup(name)
 	createTestSparseFile(name, layoutModel)
 
@@ -170,7 +165,8 @@ func punchHoleTest(t *testing.T, name string, layoutModel []FileInterval, hole I
 		t.Fatal(err)
 	}
 
-	err = PunchHole(f, hole)
+	fiemap := NewFiemapFile(f)
+	err = fiemap.PunchHole(hole.Begin, hole.Len())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,14 +175,4 @@ func punchHoleTest(t *testing.T, name string, layoutModel []FileInterval, hole I
 	if err != nil || !reflect.DeepEqual(layoutExpected, layoutActual) {
 		t.Fatal("wrong sparse layout")
 	}
-}
-
-func makeData(interval FileInterval) []byte {
-	data := make([]byte, interval.Len())
-	if SparseData == interval.Kind {
-		for i := range data {
-			data[i] = byte(interval.Begin/Blocks + 1)
-		}
-	}
-	return data
 }

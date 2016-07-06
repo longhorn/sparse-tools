@@ -1,29 +1,15 @@
 package sparse
 
 import (
-	"crypto/sha1"
+	"encoding/gob"
+	"fmt"
 	"net"
 	"os"
 	"strconv"
-
-	"bytes"
-
-	"encoding/binary"
-	"encoding/gob"
-	"errors"
-	"fmt"
 	"time"
 
-	fio "github.com/rancher/sparse-tools/directfio"
-	"github.com/rancher/sparse-tools/log"
+	log "github.com/Sirupsen/logrus"
 )
-
-// HashCollsisionError indicates block hash collision
-type HashCollsisionError struct{}
-
-func (e *HashCollsisionError) Error() string {
-	return "file hash divergence: storage error or block hash collision"
-}
 
 // TCPEndPoint tcp connection address
 type TCPEndPoint struct {
@@ -32,41 +18,42 @@ type TCPEndPoint struct {
 }
 
 const connectionRetries = 5
-const verboseClient = true
 
 // SyncFile synchronizes local file to remote host
-func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int) (hashLocal []byte, err error) {
+func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int) ([]byte, error) {
+	var hashLocal []byte
+	var err error
 	for retries := 1; retries >= 0; retries-- {
 		hashLocal, err = syncFile(localPath, addr, remotePath, timeout, retries > 0)
 		if err != nil {
-			if _, ok := err.(*HashCollsisionError); ok {
-				// retry on HahsCollisionError
-				log.Warn("SSync: retrying on chunk hash collision...")
-				continue
-			} else {
-				log.Error("SSync error:", err)
-			}
+			log.Error("SSync error:", err)
 		}
 		break
 	}
-	return
+	return hashLocal, err
 }
 
 func syncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int, retry bool) ([]byte, error) {
-	file, err := fio.OpenFile(localPath, os.O_RDONLY, 0)
+	fileInfo, err := os.Stat(localPath)
+	if err != nil {
+		log.Errorf("Failed to get size of local source file: %s, err: %s", localPath, err)
+		return nil, err
+	}
+	fileSize := fileInfo.Size()
+	directIO := (fileSize%Blocks == 0)
+	log.Debugf("setting up directIo: %v", directIO)
+
+	var fileIo FileIoProcessor
+	if directIO {
+		fileIo, err = NewDirectFileIoProcessor(localPath, os.O_RDONLY, 0)
+	} else {
+		fileIo, err = NewBufferedFileIoProcessor(localPath, os.O_RDONLY, 0)
+	}
 	if err != nil {
 		log.Error("Failed to open local source file:", localPath)
 		return nil, err
 	}
-	defer file.Close()
-
-	size, err := file.Seek(0, os.SEEK_END)
-	if err != nil {
-		log.Error("Failed to get size of local source file:", localPath, err)
-		return nil, err
-	}
-
-	SetupFileIO(size%Blocks == 0)
+	defer fileIo.Close()
 
 	conn := connect(addr.Host, strconv.Itoa(int(addr.Port)), timeout)
 	if nil == conn {
@@ -79,41 +66,18 @@ func syncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	encoder := gob.NewEncoder(conn)
 	decoder := gob.NewDecoder(conn)
 
-	// Use unix time as hash salt
-	salt := make([]byte, binary.MaxVarintLen64)
-	binary.PutVarint(salt, time.Now().UnixNano())
-	status := sendSyncRequest(encoder, decoder, remotePath, size, salt)
-	if !status {
-		err = fmt.Errorf("Sync request to %v failed", remotePath)
-		log.Error(err)
-		return nil, err
-	}
-
-	abortStream := make(chan error)
-	layoutStream := make(chan FileInterval, 128)
-	errStream := make(chan error)
-
-	// Initiate interval loading...
-	err = loadFileLayout(abortStream, file, layoutStream, errStream)
+	session := &SyncSessionClient{encoder, decoder}
+	err = session.sendSyncRequest(remotePath, fileSize)
 	if err != nil {
-		log.Error("Failed to retrieve local file layout:", err)
+		log.Errorf("Sync request to %s failed, error: %s", remotePath, err)
 		return nil, err
 	}
 
-	fileStream := make(chan FileInterval, 128)
-	unorderedStream := make(chan HashedDataInterval, 128)
-	orderedStream := make(chan HashedDataInterval, 128)
-
-	go IntervalSplitter(layoutStream, fileStream)
-	FileReaderGroup(fileReaders, salt, fileStream, localPath, unorderedStream)
-	go OrderIntervals("src:", unorderedStream, orderedStream)
-
-	// Get remote file intervals and their hashes
-	netInStream := make(chan HashedInterval, 128)
-	netInStreamDone := make(chan bool)
-	go netDstReceiver(decoder, netInStream, netInStreamDone)
-
-	return processDiff(salt, abortStream, errStream, encoder, decoder, orderedStream, netInStream, netInStreamDone, retry)
+	err = session.syncFileContent(fileIo, fileSize)
+	if err != nil {
+		log.Error("syncFileContent failed: ", err)
+	}
+	return nil, err
 }
 
 func connect(host, port string, timeout int) net.Conn {
@@ -128,6 +92,7 @@ func connect(host, port string, timeout int) net.Conn {
 	for timeNow := timeStart; timeNow.Before(timeStop); timeNow = time.Now() {
 		conn, err := net.DialTCP("tcp", nil, raddr)
 		if err == nil {
+			log.Info("connected to server")
 			return conn
 		}
 		log.Warn("Failed connection to", endpoint, "Retrying...")
@@ -139,334 +104,238 @@ func connect(host, port string, timeout int) net.Conn {
 	return nil
 }
 
-func sendSyncRequest(encoder *gob.Encoder, decoder *gob.Decoder, path string, size int64, salt []byte) bool {
-	err := encoder.Encode(requestHeader{requestMagic, syncRequestCode})
+type SyncSessionClient struct {
+	encoder *gob.Encoder
+	decoder *gob.Decoder
+}
+
+func (session *SyncSessionClient) send(e interface{}) error {
+	return session.encoder.Encode(e)
+}
+
+func (session *SyncSessionClient) receive(e interface{}) error {
+	return session.decoder.Decode(e)
+}
+
+func (session *SyncSessionClient) syncFileContent(file FileIoProcessor, fileSize int64) error {
+	exts, err := GetFiemapExtents(file)
 	if err != nil {
-		log.Fatal("Client protocol encoder error:", err)
-		return false
+		return err
 	}
-	err = encoder.Encode(path)
-	if err != nil {
-		log.Fatal("Client protocol encoder error:", err)
-		return false
+
+	var lastIntervalEnd int64
+	var holeInterval Interval
+
+	// Process each extent
+	for index, e := range exts {
+		interval := Interval{int64(e.Logical), int64(e.Logical + e.Length)}
+		log.Debugf("Extent: %s, %x", interval, e.Flags)
+
+		if lastIntervalEnd < interval.Begin {
+			// report hole
+			holeInterval = Interval{lastIntervalEnd, interval.Begin}
+			log.Debugf("Here is a hole: %s", holeInterval)
+
+			// syncing hole interval
+			err := session.SyncHoleInterval(holeInterval)
+			if err != nil {
+				log.Debugf("SyncHoleInterval failed: %s", holeInterval)
+				return err
+			}
+		}
+		// report data
+		log.Debugf("Here is a data: %s", interval)
+		lastIntervalEnd = interval.End
+
+		// syncing data interval
+		err := session.SyncDataInterval(file, interval)
+		if err != nil {
+			log.Debugf("SyncDataInterval failed: %s", interval)
+			return err
+		}
+		if e.Flags&FIEMAP_EXTENT_LAST != 0 {
+			log.Debugf("hit FIEMAP_EXTENT_LAST flag, are we on last index yet ? %v", (index == len(exts)-1))
+
+			// report last hole
+			if lastIntervalEnd < fileSize {
+				holeInterval := Interval{lastIntervalEnd, fileSize}
+				log.Debugf("Here is a hole: %s", holeInterval)
+
+				// syncing hole interval
+				err = session.SyncHoleInterval(holeInterval)
+				if err != nil {
+					log.Debugf("SyncHoleInterval failed: %s", holeInterval)
+					return err
+				}
+			}
+		}
 	}
-	err = encoder.Encode(size)
-	if err != nil {
-		log.Fatal("Client protocol encoder error:", err)
-		return false
+
+	// special case, the whole file is a hole
+	if len(exts) == 0 && fileSize != 0 {
+		// report hole
+		holeInterval = Interval{0, fileSize}
+		log.Debugf("The file is a hole: %s", holeInterval)
+
+		// syncing hole interval
+		err := session.SyncHoleInterval(holeInterval)
+		if err != nil {
+			log.Debugf("SyncHoleInterval failed: %s", holeInterval)
+			return err
+		}
 	}
-	err = encoder.Encode(salt)
+
+	return session.send(requestHeader{requestMagic, syncDone})
+}
+
+func (session *SyncSessionClient) sendSyncRequest(path string, size int64) error {
+	err := session.send(requestHeader{requestMagic, syncRequestCode})
 	if err != nil {
-		log.Fatal("Client protocol encoder error:", err)
-		return false
+		log.Debug("send requestHeader failed: ", err)
+		return err
+	}
+	err = session.send(path)
+	if err != nil {
+		log.Debug("send path failed: ", err)
+		return err
+	}
+	err = session.send(size)
+	if err != nil {
+		log.Debug("send size failed: ", err)
+		return err
 	}
 
 	var ack bool
-	err = decoder.Decode(&ack)
+	err = session.receive(&ack)
 	if err != nil {
-		log.Fatal("Client protocol decoder error:", err)
-		return false
+		log.Debug("decode ack from server failed: ", err)
+		return err
+	}
+	log.Debugf("got SyncRequest ack back: %v", ack)
+	if ack == false {
+		return fmt.Errorf("Got negative ack from server")
 	}
 
-	return ack
+	return nil
 }
 
-// Get remote hashed intervals
-func netDstReceiver(decoder *gob.Decoder, netInStream chan<- HashedInterval, netInStreamDone chan<- bool) {
-	status := true
-	for {
-		if verboseClient {
-			log.Debug("Client.netDstReceiver decoding...")
+func (session *SyncSessionClient) SyncHoleInterval(holeInterval Interval) error {
+	/*
+		sync hole interval:
+
+		1. send the hole range(start and end byte offsets) to ensure the other end
+			has pure hole in this range. If not, it will punch hole for the entire range
+			then it will asking for continue
+	*/
+	log.Debug("syncing hole: ", holeInterval)
+	err := session.send(requestHeader{requestMagic, syncHole})
+	if err != nil {
+		log.Debug("encode syncHole cmd failed: ", err)
+		return err
+	}
+	err = session.send(holeInterval)
+	if err != nil {
+		log.Debugf("encode holeInterval: %s failed: %s", holeInterval, err)
+		return err
+	}
+	var reply replyHeader
+	err = session.receive(&reply)
+	if err != nil {
+		log.Debug("decode syncHole cmd reply failed: ", err)
+		return err
+	}
+	if reply.Code == continueSync {
+		log.Debug("got continueSync reply from server")
+	}
+	return nil
+}
+
+func (session *SyncSessionClient) SyncDataInterval(file FileIoProcessor, dataInterval Interval) error {
+	const batch = 32 * Blocks
+
+	// Process data in chunks
+	for offset := dataInterval.Begin; offset < dataInterval.End; {
+		size := batch
+		if offset+size > dataInterval.End {
+			size = dataInterval.End - offset
 		}
-		var r HashedInterval
-		err := decoder.Decode(&r)
+		batchInterval := Interval{offset, offset + size}
+
+		/*
+			sync the batch data interval:
+
+			1. send the data range(start and end byte offsets) to ensure the other end
+				has pure data in this range, if so, the other end will ask for checksum
+				and calculate its own at the same time. If not, it will ask for data
+			2. waiting for the reply asking checksum or data
+			3. if the other end asking for checksum, then calculate checksum and send checksum
+			4. if the other end asking for data, then send data
+			5. if the other end asking continue, then data interval is in sync and move on
+				to the next batch interval
+		*/
+		log.Debug("syncing data batch interval: ", batchInterval)
+		err := session.send(requestHeader{requestMagic, syncData})
 		if err != nil {
-			log.Fatal("Cient protocol error:", err)
-			status = false
-			break
+			log.Debug("encode syncData cmd reply failed: ", err)
+			return err
 		}
-		// interval := r.Interval
-		if r.Kind == SparseIgnore {
-			if verboseClient {
-				log.Debug("Client.netDstReceiver got <eof>")
-			}
-			break
+		err = session.send(batchInterval)
+		if err != nil {
+			log.Debug("encode batchInterval: %s failed, err: %s", batchInterval, err)
+			return err
 		}
-		if verboseClient {
-			switch r.Kind {
-			case SparseData:
-				log.Debug("Client.netDstReceiver got data", r.FileInterval, "hash[", len(r.Hash), "]")
-			case SparseHole:
-				log.Debug("Client.netDstReceiver got hole", r.FileInterval)
-			}
-		}
-		netInStream <- r
-	}
-	close(netInStream)
-	netInStreamDone <- status
-}
 
-// file reading chunk
-type fileChunk struct {
-	eof    bool // end of stream: stop reader
-	header FileInterval
-}
-
-// network transfer chunk
-type diffChunk struct {
-	status bool // read file or network send error yield false
-	header DataInterval
-}
-
-func processDiff(salt []byte, abortStream chan<- error, errStream <-chan error, encoder *gob.Encoder, decoder *gob.Decoder, local <-chan HashedDataInterval, remote <-chan HashedInterval, netInStreamDone <-chan bool, retry bool) (hashLocal []byte, err error) {
-	// Local:   __ _*
-	// Remote:  *_ **
-	hashLocal = make([]byte, 0) // empty hash for errors
-	const concurrentReaders = 4
-	netStream := make(chan diffChunk, 128)
-	netStatus := make(chan netXferStatus)
-	go networkSender(netStream, encoder, netStatus)
-	fileHasher := sha1.New()
-	fileHasher.Write(salt)
-
-	lrange := <-local
-	rrange := <-remote
-	for lrange.Len() != 0 {
-		if rrange.Len() == 0 {
-			// Copy local tail
-			if verboseClient {
-				logData("LHASH", lrange.Data)
-			}
-			hashFileData(fileHasher, lrange.Len(), lrange.Data)
-			processFileInterval(lrange, HashedInterval{FileInterval{SparseHole, lrange.Interval}, make([]byte, 0)}, netStream)
-			lrange = <-local
-			continue
-		}
-		// Diff
-		if verboseClient {
-			log.Debug("Diff:", lrange.HashedInterval, rrange)
-		}
-		if lrange.Begin == rrange.Begin {
-			if lrange.End > rrange.End {
-				data := lrange.Data
-				if len(data) > 0 {
-					data = lrange.Data[:rrange.Len()]
-				}
-				subrange := HashedDataInterval{HashedInterval{FileInterval{lrange.Kind, rrange.Interval}, lrange.Hash}, data}
-				if verboseClient {
-					logData("LHASH", subrange.Data)
-				}
-
-				hashFileData(fileHasher, subrange.Len(), subrange.Data)
-				processFileInterval(subrange, rrange, netStream)
-				if len(data) > 0 {
-					lrange.Data = lrange.Data[subrange.Len():]
-				}
-				lrange.Begin = rrange.End
-				rrange = <-remote
-				continue
-			} else if lrange.End < rrange.End {
-				if verboseClient {
-					logData("LHASH", lrange.Data)
-				}
-
-				hashFileData(fileHasher, lrange.Len(), lrange.Data)
-				processFileInterval(lrange, HashedInterval{FileInterval{rrange.Kind, lrange.Interval}, make([]byte, 0)}, netStream)
-				rrange.Begin = lrange.End
-				lrange = <-local
-				continue
-			}
-			if verboseClient {
-				logData("LHASH", lrange.Data)
-			}
-			hashFileData(fileHasher, lrange.Len(), lrange.Data)
-			processFileInterval(lrange, rrange, netStream)
-			lrange = <-local
-			rrange = <-remote
-		} else {
-			// Should never happen
-			log.Fatal("processDiff internal error")
-			return
-		}
-	}
-	log.Info("Finished processing file diff")
-
-	status := true
-	err = <-errStream
-	if err != nil {
-		log.Error("Sync client file load aborted:", err)
-		status = false
-	}
-	// make sure we finished consuming dst hashes
-	status = <-netInStreamDone && status // netDstReceiver finished
-	log.Info("Finished consuming remote file hashes, status=", status)
-
-	// Send end of transmission
-	netStream <- diffChunk{true, DataInterval{FileInterval{SparseIgnore, Interval{0, 0}}, make([]byte, 0)}}
-
-	// get network sender status
-	net := <-netStatus
-	log.Info("Finished sending file diff of", net.byteCount, "(bytes), status=", net.status)
-	if !net.status {
-		err = errors.New("netwoek transfer failure")
-		return
-	}
-
-	var statusRemote bool
-	err = decoder.Decode(&statusRemote)
-	if err != nil {
-		log.Fatal("Cient protocol remote status error:", err)
-		return
-	}
-	if !statusRemote {
-		err = errors.New("failure on remote sync site")
-		return
-	}
-	var hashRemote []byte
-	err = decoder.Decode(&hashRemote)
-	if err != nil {
-		log.Fatal("Cient protocol remote hash error:", err)
-		return
-	}
-
-	// Compare file hashes
-	hashLocal = fileHasher.Sum(nil)
-	if isHashDifferent(hashLocal, hashRemote) || FailPointFileHashMatch() {
-		log.Warn("hashLocal =", hashLocal)
-		log.Warn("hashRemote=", hashRemote)
-		err = &HashCollsisionError{}
-	} else {
-		retry = false // success, don't retry anymore
-	}
-
-	// Final retry negotiation
-	{
-		err1 := encoder.Encode(retry)
-		if err1 != nil {
-			log.Fatal("Cient protocol remote retry error:", err)
-		}
-		err1 = decoder.Decode(&statusRemote)
-		if err1 != nil {
-			log.Fatal("Cient protocol remote retry status error:", err)
-		}
-	}
-	return
-}
-
-func isHashDifferent(a, b []byte) bool {
-	return !bytes.Equal(a, b)
-}
-
-func processFileInterval(local HashedDataInterval, remote HashedInterval, netStream chan<- diffChunk) {
-	if local.Interval != remote.Interval {
-		log.Fatal("Sync.processFileInterval range internal error:", local.FileInterval, remote.FileInterval)
-	}
-	if local.Kind != remote.Kind {
-		// Different intreval types, send the diff
-		if local.Kind == SparseData && int64(len(local.Data)) != local.FileInterval.Len() {
-			log.Fatal("Sync.processFileInterval data internal error:", local.FileInterval.Len(), len(local.Data))
-		}
-		netStream <- diffChunk{true, DataInterval{local.FileInterval, local.Data}}
-		return
-	}
-
-	// The interval types are the same
-	if SparseHole == local.Kind {
-		// Process hole, no syncronization is required
-		local.Kind = SparseIgnore
-		netStream <- diffChunk{true, DataInterval{local.FileInterval, local.Data}}
-		return
-	}
-
-	if local.Kind != SparseData {
-		log.Fatal("Sync.processFileInterval kind internal error:", local.FileInterval)
-	}
-	// Data file interval
-	if isHashDifferent(local.Hash, remote.Hash) {
-		if int64(len(local.Data)) != local.FileInterval.Len() {
-			log.Fatal("Sync.processFileInterval internal error:", local.FileInterval.Len(), len(local.Data))
-		}
-		netStream <- diffChunk{true, DataInterval{local.FileInterval, local.Data}}
-		return
-	}
-
-	// No diff, just communicate we processed it
-	//TODO: this apparently can be avoided but requires revision of the protocol
-	local.Kind = SparseIgnore
-	netStream <- diffChunk{true, DataInterval{local.FileInterval, make([]byte, 0)}}
-}
-
-// prints chan codes and lengths to trace
-// - sequence and interleaving of chan processing
-// - how much of the chan buffer is used
-const traceChannelLoad = false
-
-type netXferStatus struct {
-	status    bool
-	byteCount int64
-}
-
-func networkSender(netStream <-chan diffChunk, encoder *gob.Encoder, netStatus chan<- netXferStatus) {
-	status := true
-	byteCount := int64(0)
-	for {
-		chunk := <-netStream
-		if 0 == chunk.header.Len() {
-			// eof: last 0 len header
-			if verboseClient {
-				log.Debug("Client.networkSender <eof>")
-			}
-			err := encoder.Encode(chunk.header.FileInterval)
+		notInSync := true
+		for notInSync {
+			log.Debug("decoding ...")
+			var reply replyHeader
+			err := session.receive(&reply)
 			if err != nil {
-				log.Fatal("Client protocol encoder error:", err)
-				status = false
+				log.Debug("decoder syncData cmd reply failed: ", err)
+				return err
 			}
-			break
-		}
+			switch reply.Code {
+			case sendChecksum:
+				log.Debug("server reply asking for checksum")
 
-		if !status {
-			// network error
-			continue // discard the chunk
-		}
-		if !chunk.status {
-			// read error
-			status = false
-			continue // discard the chunk
-		}
+				// calculate checksum for the data batch interval
+				localCheckSum, err := HashDataInterval(file, batchInterval)
+				if err != nil {
+					log.Errorf("HashDataInterval locally: %s failed, err: %s", batchInterval, err)
+					return err
+				}
 
-		if traceChannelLoad {
-			fmt.Fprint(os.Stderr, len(netStream), "n")
-		}
+				// send the checksum
+				log.Debug("sending checksum")
+				err = session.send(localCheckSum)
+				if err != nil {
+					log.Errorf("encode localCheckSum for data interval: %s failed, err: %s", batchInterval, err)
+					return err
+				}
+			case sendData:
+				log.Debug("server reply asking for data")
 
-		// Encode and send data to the network
-		if verboseClient {
-			log.Debug("Client.networkSender sending:", chunk.header.FileInterval)
+				// read data from the file
+				dataBuffer, err := ReadDataInterval(file, batchInterval)
+				if err != nil {
+					log.Errorf("ReadDataInterval locally: %s failed, err: %s", batchInterval, err)
+					return err
+				}
+
+				// send data buffer
+				log.Debugf("sending dataBuffer size: %d", len(dataBuffer))
+				err = session.send(dataBuffer)
+				if err != nil {
+					log.Errorf("encode dataBuffer for data interval: %s failed, err: %s", batchInterval, err)
+					return err
+				}
+			case continueSync:
+				log.Debug("server is reporting in-sync with data batch interval")
+				notInSync = false
+			}
 		}
-		err := encoder.Encode(chunk.header.FileInterval)
-		if err != nil {
-			log.Fatal("Client protocol encoder error:", err)
-			status = false
-			continue
-		}
-		if len(chunk.header.Data) == 0 {
-			continue
-		}
-		if verboseClient {
-			log.Debug("Client.networkSender sending data")
-		}
-		if int64(len(chunk.header.Data)) != chunk.header.FileInterval.Len() {
-			log.Fatal("Client.networkSender sending data internal error:", chunk.header.FileInterval.Len(), len(chunk.header.Data))
-		}
-		err = encoder.Encode(chunk.header.Data)
-		if err != nil {
-			log.Fatal("Client protocol encoder error:", err)
-			status = false
-			continue
-		}
-		byteCount += int64(len(chunk.header.Data))
-		if traceChannelLoad {
-			fmt.Fprint(os.Stderr, "N\n")
-		}
+		log.Debug("syncing data batch interval is done")
+		offset += batchInterval.Len()
 	}
-	netStatus <- netXferStatus{status, byteCount}
+	return nil
 }

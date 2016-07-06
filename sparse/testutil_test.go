@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/rancher/sparse-tools/log"
+	log "github.com/Sirupsen/logrus"
 )
 
 func filesAreEqual(aPath, bPath string) bool {

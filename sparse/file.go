@@ -124,7 +124,7 @@ func AllocateAligned(size int) []byte {
 	if shift != 0 {
 		offset = alignment - shift
 	}
-	block = block[offset:size]
+	block = block[offset : size+offset]
 	shift = alignmentShift(block)
 	if shift != 0 {
 		panic("Alignment failure")
@@ -191,13 +191,30 @@ func GetFiemapExtents(file FileIoProcessor) ([]Extent, error) {
 	}
 	log.Debugf("extCount: %d", extCount)
 
-	if extCount != 0 {
-		var errno syscall.Errno
-		_, exts, errno = fiemap.Fiemap(extCount)
-		if errno != 0 {
-			log.Error("failed to call fiemap.Fiemap(extCount)")
-			return exts, fmt.Errorf(errno.Error())
+	if extCount == 0 {
+		return exts, nil
+	}
+
+	_, exts, errno = fiemap.Fiemap(extCount)
+	if errno != 0 {
+		log.Error("failed to call fiemap.Fiemap(extCount)")
+		return exts, fmt.Errorf(errno.Error())
+	}
+
+	// The exts returned by File System should be ordered
+	var lastExtStart uint64
+	for i, ext := range exts {
+
+		// if lastExtStart is initialized and this ext start is less than last ext start
+		if i != 0 && ext.Logical < lastExtStart {
+			return exts, fmt.Errorf("The exts returned by fiemap are not ordered")
 		}
+		lastExtStart = ext.Logical
+	}
+
+	// last ext should have the FIEMAP_EXTENT_LAST set, otherwise we don't get all exts
+	if exts[len(exts)-1].Flags&FIEMAP_EXTENT_LAST == 0 {
+		return exts, fmt.Errorf("The exts returned by fiemap are not complete")
 	}
 
 	return exts, nil

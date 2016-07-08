@@ -17,7 +17,8 @@ type TCPEndPoint struct {
 	Port int16
 }
 
-const connectionRetries = 5
+// we should disable this when we are confident
+const enableFinalMD5 = true
 
 // SyncFile synchronizes local file to remote host
 func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int) ([]byte, error) {
@@ -77,7 +78,13 @@ func syncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	if err != nil {
 		log.Error("syncFileContent failed: ", err)
 	}
-	return nil, err
+
+	if enableFinalMD5 && !AreFilesEqual(localPath, remotePath) {
+		log.Error("After syncFileContent, local and remote files are different")
+		return nil, fmt.Errorf("file: %s differs from file: %s", localPath, remotePath)
+	}
+
+	return nil, nil
 }
 
 func connect(host, port string, timeout int) net.Conn {

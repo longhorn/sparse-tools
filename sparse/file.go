@@ -1,6 +1,8 @@
 package sparse
 
 import (
+	"bytes"
+	"crypto/md5"
 	"crypto/sha512"
 	"fmt"
 	"io"
@@ -201,4 +203,36 @@ func GetFiemapExtents(file FileIoProcessor) ([]Extent, error) {
 	}
 
 	return exts, nil
+}
+
+func AreFilesEqual(aPath string, bPath string) bool {
+	aHash, err := hashFileMD5(aPath)
+	if err != nil {
+		log.Errorf("Failed hashFileMD5 with file: %s", aPath)
+		return true
+	}
+	bHash, err := hashFileMD5(bPath)
+	if err != nil {
+		log.Errorf("Failed hashFileMD5 with file: %s", bPath)
+		return true
+	}
+
+	return bytes.Equal(aHash, bHash)
+}
+
+func hashFileMD5(filePath string) ([]byte, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	hash := md5.New()
+
+	//Copy the file in the hash interface and check for any error
+	if _, err := io.Copy(hash, file); err != nil {
+		return nil, err
+	}
+
+	return hash.Sum(nil), nil
 }

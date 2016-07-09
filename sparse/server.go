@@ -63,6 +63,8 @@ func (repCode replyCode) String() string {
 		s = "sendChecksum"
 	} else if repCode == sendData {
 		s = "sendData"
+	} else {
+		s = "unknownReply"
 	}
 	return s
 }
@@ -302,32 +304,17 @@ func (session *SyncSessionServer) serveSyncHole(file FileIoProcessor, localHoleI
 	}
 	log.Debug("receiving remote hole interval: ", remoteHoleInterval)
 
-	pureHole := false
-
-	// do a binary search of the starting offset of dataInterval through the layout
-	i := sort.Search(len(localHoleIntervals),
+	// Search uses binary search to find and return the smallest index i in localDataIntervals[0, n),
+	// at which closure function f(i) is true. If there is no such index, Search returns n.
+	// n = len(localDataIntervals)
+	index := sort.Search(len(localHoleIntervals),
 		func(i int) bool { return remoteHoleInterval.Begin < localHoleIntervals[i].Begin })
-	log.Debug("found remoteHoleInterval to insert position in localHoleIntervals is: ", i)
+	log.Debug("found remoteHoleInterval to insert position in localHoleIntervals is: ", index)
 
-	// i == 0 when insertion point is at the head, or len(originalFileIntervalLayout) == 0
-	// so not within any data range for sure. Otherwise i > 0, the searching
-	// point(dataInterval.Begin) is definitely less than originalFileIntervalLayout[i].Begin,
-	// and also dataInterval.Begin >= originalFileIntervalLayout[i-1].Begin by f() closure.
-	// So we just need to check if both Begin and End of dataInterval is <= originalFileIntervalLayout[i-1].End.
-	// If so, then within that original data extent, otherwise not. Assumption here is:
-	// adjacent data extents don't exist, they are all seperated by holes. If assumption
-	// fails, we basically asking for data transfer directly without checking if checksum matches
-	// or not. But that is just extra overhead. We know this assumption
-	// doesn't fail often for sure. So this is acceptable.
-	if i > 0 &&
-		remoteHoleInterval.Begin <= localHoleIntervals[i-1].End &&
-		remoteHoleInterval.End <= localHoleIntervals[i-1].End {
+	if index > 0 && remoteHoleInterval.End <= localHoleIntervals[index-1].End {
 		log.Debugf("remoteHoleInterval %s is within localHoleIntervals", remoteHoleInterval)
-		pureHole = true
 	} else {
 		log.Debugf("remoteHoleInterval %s is not within localHoleIntervals", remoteHoleInterval)
-	}
-	if !pureHole {
 		log.Debug("punching hole:", remoteHoleInterval)
 		fiemap := NewFiemapFile(file.getFile())
 		err := fiemap.PunchHole(remoteHoleInterval.Begin, remoteHoleInterval.Len())
@@ -367,40 +354,16 @@ func (session *SyncSessionServer) serveSyncData(file FileIoProcessor, localDataI
 	}
 	log.Debug("receiving data interval: ", dataInterval)
 
-	pureData := false
-
-	// do a binary search of the starting offset of dataInterval through the layout
-	i := sort.Search(len(localDataIntervals),
+	// Search uses binary search to find and return the smallest index i in localDataIntervals[0, n),
+	// at which closure function f(i) is true. If there is no such index, Search returns n.
+	// n = len(localDataIntervals)
+	index := sort.Search(len(localDataIntervals),
 		func(i int) bool { return dataInterval.Begin < localDataIntervals[i].Begin })
-	log.Debug("found position to insert position in localDataIntervals is: ", i)
+	log.Debug("found position to insert position in localDataIntervals is: ", index)
 
-	// i == 0 when insertion point is at the head, or len(originalFileIntervalLayout) == 0
-	// so not within any data range for sure. Otherwise i > 0, the searching
-	// point(dataInterval.Begin) is definitely less than originalFileIntervalLayout[i].Begin,
-	// and also dataInterval.Begin >= originalFileIntervalLayout[i-1].Begin by f() closure.
-	// So we just need to check if both Begin and End of dataInterval is <= originalFileIntervalLayout[i-1].End.
-	// If so, then within that original data extent, otherwise not. Assumption here is:
-	// adjacent data extents don't exist, they are all seperated by holes. If assumption
-	// fails, we basically asking for data transfer directly without checking if checksum matches
-	// or not. But that is just extra overhead. We know this assumption
-	// doesn't fail often for sure. So this is acceptable.
-	if i > 0 &&
-		dataInterval.Begin <= localDataIntervals[i-1].End &&
-		dataInterval.End <= localDataIntervals[i-1].End {
+	if index > 0 && dataInterval.End <= localDataIntervals[index-1].End {
 		log.Debugf("dataInterval %s is within localDataIntervals", dataInterval)
-		pureData = true
-	} else {
-		log.Debugf("dataInterval %s is not within localDataIntervals", dataInterval)
-	}
-	if !pureData {
-		// ask for data and wait for data, and then write data
-		log.Debug("asking for data")
-		err := session.receiveDataAndWriteFile(file, dataInterval)
-		if err != nil {
-			return err
-		}
-		log.Debug("got and written data")
-	} else {
+
 		// ask client to calculate checksum, calculate local checksum, then wait
 		// for remote checksum, and then compare. If checksum matches, then send
 		// continueSync reply. Otherwise, ask for data and wait for data, and then write data
@@ -435,6 +398,16 @@ func (session *SyncSessionServer) serveSyncData(file FileIoProcessor, localDataI
 		} else {
 			log.Debug("checksum is good")
 		}
+	} else {
+		log.Debugf("dataInterval %s is not within localDataIntervals", dataInterval)
+
+		// ask for data and wait for data, and then write data
+		log.Debug("asking for data")
+		err := session.receiveDataAndWriteFile(file, dataInterval)
+		if err != nil {
+			return err
+		}
+		log.Debug("got and written data")
 	}
 
 	log.Debug("asking for continueSync")
@@ -494,7 +467,7 @@ func getFileLayout(file FileIoProcessor) ([]Interval, []Interval, error) {
 	var holeInterval Interval
 
 	// Process extents and create a layout with holes as well for easy syncing with client
-	for index, e := range exts {
+	for _, e := range exts {
 		interval := Interval{int64(e.Logical), int64(e.Logical + e.Length)}
 		log.Debugf("Extent: %s, %x", interval, e.Flags)
 
@@ -510,8 +483,6 @@ func getFileLayout(file FileIoProcessor) ([]Interval, []Interval, error) {
 		dataIntervals = append(dataIntervals, interval)
 
 		if e.Flags&FIEMAP_EXTENT_LAST != 0 {
-			log.Debugf("hit the last extent with FIEMAP_EXTENT_LAST flag, are we on last index yet ? %v", (index == len(exts)-1))
-
 			// report last hole
 			if lastIntervalEnd < fileSize {
 				holeInterval := Interval{lastIntervalEnd, fileSize}

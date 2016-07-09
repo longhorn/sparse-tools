@@ -76,7 +76,9 @@ func syncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	err = session.syncFileContent(fileIo, fileSize)
 	if err != nil {
 		log.Error("syncFileContent failed: ", err)
+		return nil, err
 	}
+
 	return nil, err
 }
 
@@ -127,7 +129,7 @@ func (session *SyncSessionClient) syncFileContent(file FileIoProcessor, fileSize
 	var holeInterval Interval
 
 	// Process each extent
-	for index, e := range exts {
+	for _, e := range exts {
 		interval := Interval{int64(e.Logical), int64(e.Logical + e.Length)}
 		log.Debugf("Extent: %s, %x", interval, e.Flags)
 
@@ -154,8 +156,6 @@ func (session *SyncSessionClient) syncFileContent(file FileIoProcessor, fileSize
 			return err
 		}
 		if e.Flags&FIEMAP_EXTENT_LAST != 0 {
-			log.Debugf("hit FIEMAP_EXTENT_LAST flag, are we on last index yet ? %v", (index == len(exts)-1))
-
 			// report last hole
 			if lastIntervalEnd < fileSize {
 				holeInterval := Interval{lastIntervalEnd, fileSize}
@@ -285,55 +285,71 @@ func (session *SyncSessionClient) SyncDataInterval(file FileIoProcessor, dataInt
 			return err
 		}
 
-		notInSync := true
-		for notInSync {
-			log.Debug("decoding ...")
-			var reply replyHeader
-			err := session.receive(&reply)
+		var reply replyHeader
+		err = session.receive(&reply)
+		if err != nil {
+			log.Debug("decode syncData cmd reply failed: ", err)
+			return err
+		}
+
+		if reply.Code == sendChecksum {
+			log.Debug("server reply asking for checksum")
+
+			// calculate checksum for the data batch interval
+			localCheckSum, err := HashDataInterval(file, batchInterval)
 			if err != nil {
-				log.Debug("decoder syncData cmd reply failed: ", err)
+				log.Errorf("HashDataInterval locally: %s failed, err: %s", batchInterval, err)
 				return err
 			}
-			switch reply.Code {
-			case sendChecksum:
-				log.Debug("server reply asking for checksum")
 
-				// calculate checksum for the data batch interval
-				localCheckSum, err := HashDataInterval(file, batchInterval)
-				if err != nil {
-					log.Errorf("HashDataInterval locally: %s failed, err: %s", batchInterval, err)
-					return err
-				}
+			// send the checksum
+			log.Debug("sending checksum")
+			err = session.send(localCheckSum)
+			if err != nil {
+				log.Errorf("encode localCheckSum for data interval: %s failed, err: %s", batchInterval, err)
+				return err
+			}
 
-				// send the checksum
-				log.Debug("sending checksum")
-				err = session.send(localCheckSum)
-				if err != nil {
-					log.Errorf("encode localCheckSum for data interval: %s failed, err: %s", batchInterval, err)
-					return err
-				}
-			case sendData:
-				log.Debug("server reply asking for data")
-
-				// read data from the file
-				dataBuffer, err := ReadDataInterval(file, batchInterval)
-				if err != nil {
-					log.Errorf("ReadDataInterval locally: %s failed, err: %s", batchInterval, err)
-					return err
-				}
-
-				// send data buffer
-				log.Debugf("sending dataBuffer size: %d", len(dataBuffer))
-				err = session.send(dataBuffer)
-				if err != nil {
-					log.Errorf("encode dataBuffer for data interval: %s failed, err: %s", batchInterval, err)
-					return err
-				}
-			case continueSync:
-				log.Debug("server is reporting in-sync with data batch interval")
-				notInSync = false
+			log.Debug("waiting for either continueSync or sendData request...")
+			err = session.receive(&reply)
+			if err != nil {
+				log.Debug("decode syncData cmd reply failed: ", err)
+				return err
 			}
 		}
+		if reply.Code == sendData {
+			log.Debug("server reply asking for data")
+
+			// read data from the file
+			dataBuffer, err := ReadDataInterval(file, batchInterval)
+			if err != nil {
+				log.Errorf("ReadDataInterval locally: %s failed, err: %s", batchInterval, err)
+				return err
+			}
+
+			// send data buffer
+			log.Debugf("sending dataBuffer size: %d", len(dataBuffer))
+			err = session.send(dataBuffer)
+			if err != nil {
+				log.Errorf("encode dataBuffer for data interval: %s failed, err: %s", batchInterval, err)
+				return err
+			}
+
+			log.Debug("waiting for continueSync request...")
+			err = session.receive(&reply)
+			if err != nil {
+				log.Debug("decode syncData cmd reply failed: ", err)
+				return err
+			}
+		}
+		if reply.Code == continueSync {
+			log.Debug("server is reporting data batch interval match")
+		} else {
+			errorStr := fmt.Sprintf("expecting server to send continueSync, but got: %s", reply.Code)
+			log.Errorf(errorStr)
+			return fmt.Errorf(errorStr)
+		}
+
 		log.Debug("syncing data batch interval is done")
 		offset += batchInterval.Len()
 	}

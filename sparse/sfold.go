@@ -7,6 +7,10 @@ import (
 	log "github.com/Sirupsen/logrus"
 )
 
+const (
+	batchBlockCount = 32
+)
+
 // FoldFile folds child snapshot data into its parent
 func FoldFile(childFileName, parentFileName string) error {
 
@@ -63,25 +67,30 @@ func coalesce(parentFileIo FileIoProcessor, childFileIo FileIoProcessor) error {
 		}
 
 		// now we have a data start offset and length(hole - data)
-		// let's read from child and write to parent file block by block
+		// let's read from child and write to parent file. We read/write up to
+		// 32 blocks in a batch
 		_, err = parentFileIo.Seek(data, os.SEEK_SET)
 		if err != nil {
 			log.Error("Failed to os.Seek os.SEEK_SET")
 			return err
 		}
 
-		offset := data
-		buffer := AllocateAligned(blockSize)
-		for offset != hole {
-			// read a block from child, maybe use bufio or Reader stream
-			n, err := childFileIo.fileReadAt(buffer, offset)
-			if n != len(buffer) || err != nil {
+		batch := batchBlockCount * blockSize
+		buffer := AllocateAligned(batch)
+		for offset := data; offset < hole; {
+			size := batch
+			if offset+int64(size) > hole {
+				size = int(hole - offset)
+			}
+			// read a batch from child
+			n, err := childFileIo.fileReadAt(buffer[:size], offset)
+			if err != nil {
 				log.Error("Failed to read from childFile")
 				return err
 			}
-			// write a block to parent
-			n, err = parentFileIo.fileWriteAt(buffer, offset)
-			if n != len(buffer) || err != nil {
+			// write a batch to parent
+			n, err = parentFileIo.fileWriteAt(buffer[:size], offset)
+			if err != nil {
 				log.Error("Failed to write to parentFile")
 				return err
 			}

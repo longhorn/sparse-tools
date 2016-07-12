@@ -13,14 +13,15 @@ import (
 
 type FileIoProcessor interface {
 	// File I/O methods for direct or bufferend I/O
-	fileReadAt(data []byte, offset int64) (int, error)
-	fileWriteAt(data []byte, offset int64) (int, error)
-	getFile() *os.File
+	ReadAt(data []byte, offset int64) (int, error)
+	WriteAt(data []byte, offset int64) (int, error)
+	GetFile() *os.File
 	Close() error
 	Sync() error
 	Truncate(size int64) error
 	Seek(offset int64, whence int) (ret int64, err error)
 	Name() string
+	Stat() (os.FileInfo, error)
 }
 
 type BufferedFileIoProcessor struct {
@@ -45,16 +46,13 @@ func NewBufferedFileIoProcessorByFP(fp *os.File) *BufferedFileIoProcessor {
 	return &BufferedFileIoProcessor{fp}
 }
 
-func (file *BufferedFileIoProcessor) fileReadAt(data []byte, offset int64) (int, error) {
-	return file.File.ReadAt(data, offset)
-}
-
-func (file *BufferedFileIoProcessor) fileWriteAt(data []byte, offset int64) (int, error) {
-	return file.File.WriteAt(data, offset)
-}
-
-func (file *BufferedFileIoProcessor) getFile() *os.File {
+func (file *BufferedFileIoProcessor) GetFile() *os.File {
 	return file.File
+}
+
+func (file *BufferedFileIoProcessor) Close() error {
+	file.File.Sync()
+	return file.File.Close()
 }
 
 type DirectFileIoProcessor struct {
@@ -72,9 +70,9 @@ const (
 func NewDirectFileIoProcessor(name string, flag int, perm os.FileMode, isCreate ...bool) (*DirectFileIoProcessor, error) {
 	file, err := os.OpenFile(name, syscall.O_DIRECT|flag, perm)
 
-	// if file does not exist, we need to create it if asked to
+	// if failed open existing and isCreate flag is true, we need to create it if asked to
 	if err != nil && len(isCreate) > 0 && isCreate[0] {
-		file, err = os.OpenFile(name, os.O_CREATE|os.O_TRUNC|syscall.O_DIRECT|flag, perm)
+		file, err = os.OpenFile(name, os.O_CREATE|syscall.O_DIRECT|flag, perm)
 	}
 	if err != nil {
 		return nil, err
@@ -89,7 +87,7 @@ func NewDirectFileIoProcessorByFP(fp *os.File) *DirectFileIoProcessor {
 
 // ReadAt read into unaligned data buffer via direct I/O
 // Use AllocateAligned to avoid extra data fuffer copy
-func (file *DirectFileIoProcessor) fileReadAt(data []byte, offset int64) (int, error) {
+func (file *DirectFileIoProcessor) ReadAt(data []byte, offset int64) (int, error) {
 	if alignmentShift(data) == 0 {
 		return file.File.ReadAt(data, offset)
 	}
@@ -101,7 +99,7 @@ func (file *DirectFileIoProcessor) fileReadAt(data []byte, offset int64) (int, e
 
 // WriteAt write from unaligned data buffer via direct I/O
 // Use AllocateAligned to avoid extra data fuffer copy
-func (file *DirectFileIoProcessor) fileWriteAt(data []byte, offset int64) (int, error) {
+func (file *DirectFileIoProcessor) WriteAt(data []byte, offset int64) (int, error) {
 	if alignmentShift(data) == 0 {
 		return file.File.WriteAt(data, offset)
 	}
@@ -112,7 +110,7 @@ func (file *DirectFileIoProcessor) fileWriteAt(data []byte, offset int64) (int, 
 	return n, err
 }
 
-func (file *DirectFileIoProcessor) getFile() *os.File {
+func (file *DirectFileIoProcessor) GetFile() *os.File {
 	return file.File
 }
 
@@ -141,31 +139,27 @@ func alignmentShift(block []byte) int {
 }
 
 func ReadDataInterval(file FileIoProcessor, dataInterval Interval) ([]byte, error) {
-	log.Debug("reading data from file ...")
 	data := make([]byte, dataInterval.Len())
-	n, err := file.fileReadAt(data, dataInterval.Begin)
+	n, err := file.ReadAt(data, dataInterval.Begin)
 	if err != nil {
 		if err == io.EOF {
-			log.Debug("have read at the end of file, total read: ", n)
+			log.Debugf("have read at the end of file, total read: %d", n)
 		} else {
-			errStr := fmt.Sprintf("File read error: %s", err)
+			errStr := fmt.Sprintf("File to read interval:%s, error: %s", dataInterval, err)
 			log.Error(errStr)
 			return nil, fmt.Errorf(errStr)
 		}
 	}
-	log.Debug("reading data from file is done")
 	return data[:n], nil
 }
 
 func WriteDataInterval(file FileIoProcessor, dataInterval Interval, data []byte) error {
-	log.Debug("writing data ...")
-	_, err := file.fileWriteAt(data, dataInterval.Begin)
+	_, err := file.WriteAt(data, dataInterval.Begin)
 	if err != nil {
-		errStr := fmt.Sprintf("Failed to write file using interval:%s, error: %s", dataInterval, err)
+		errStr := fmt.Sprintf("Failed to write file interval:%s, error: %s", dataInterval, err)
 		log.Error(errStr)
 		return fmt.Errorf(errStr)
 	}
-	log.Debug("written data")
 	return nil
 }
 
@@ -179,23 +173,30 @@ func HashDataInterval(file FileIoProcessor, dataInterval Interval) ([]byte, erro
 }
 
 func GetFiemapExtents(file FileIoProcessor) ([]Extent, error) {
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	return GetFiemapRegionExts(file, Interval{0, fileInfo.Size()})
+}
+
+func GetFiemapRegionExts(file FileIoProcessor, interval Interval) ([]Extent, error) {
 	var exts []Extent
-	fiemap := NewFiemapFile(file.getFile())
+	fiemap := NewFiemapFile(file.GetFile())
 
 	// first call of Fiemap with 0 extent count will actually return total mapped ext counts
 	// we can use that to allocate extent struct slice to get details of each extent
-	extCount, _, errno := fiemap.Fiemap(0)
+	extCount, _, errno := fiemap.FiemapRegion(0, uint64(interval.Begin), uint64(interval.End-interval.Begin))
 	if errno != 0 {
 		log.Error("failed to call fiemap.Fiemap(0)")
 		return exts, fmt.Errorf(errno.Error())
 	}
-	log.Debugf("extCount: %d", extCount)
 
 	if extCount == 0 {
 		return exts, nil
 	}
 
-	_, exts, errno = fiemap.Fiemap(extCount)
+	_, exts, errno = fiemap.FiemapRegion(extCount, uint64(interval.Begin), uint64(interval.End-interval.Begin))
 	if errno != 0 {
 		log.Error("failed to call fiemap.Fiemap(extCount)")
 		return exts, fmt.Errorf(errno.Error())

@@ -1,9 +1,11 @@
-package sparse
+package test
 
 import (
 	"os"
 	"reflect"
 	"testing"
+
+	. "github.com/rancher/sparse-tools/sparse"
 )
 
 var name = tempFilePath("")

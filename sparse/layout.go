@@ -6,7 +6,6 @@ import (
 	"os"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/frostschutz/go-fibmap"
 )
 
 // Interval [Begin, End) is non-inclusive at the End
@@ -86,7 +85,7 @@ const (
 	fallocFlPunchHole uint32 = 2
 )
 
-func makeData(interval FileInterval) []byte {
+func MakeData(interval FileInterval) []byte {
 	data := make([]byte, interval.Len())
 	if SparseData == interval.Kind {
 		for i := range data {
@@ -122,7 +121,8 @@ func RetrieveLayoutStream(abortStream <-chan error, file *os.File, r Interval, l
 		}
 
 		for more := true; more && chunk.Len() > 0; {
-			ext, errno := fibmap.Fiemap(file.Fd(), uint64(chunk.Begin), uint64(chunk.Len()), 1024)
+			fiemap := NewFiemapFile(file)
+			_, ext, errno := fiemap.Fiemap(uint32(chunk.Len()))
 			if errno != 0 {
 				close(layoutStream)
 				errStream <- &os.PathError{Op: "Fiemap", Path: file.Name(), Err: errno}
@@ -136,7 +136,7 @@ func RetrieveLayoutStream(abortStream <-chan error, file *os.File, r Interval, l
 			for _, e := range ext {
 				interval := Interval{int64(e.Logical), int64(e.Logical + e.Length)}
 				log.Debug("Extent:", interval, e.Flags)
-				if e.Flags&fibmap.FIEMAP_EXTENT_LAST != 0 {
+				if e.Flags&FIEMAP_EXTENT_LAST != 0 {
 					more = false
 				}
 				if intervalLast.End < interval.Begin {

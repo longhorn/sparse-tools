@@ -1,4 +1,4 @@
-package sparse
+package test
 
 import (
 	"bytes"
@@ -13,6 +13,8 @@ import (
 	"strconv"
 
 	log "github.com/Sirupsen/logrus"
+	. "github.com/rancher/sparse-tools/sparse"
+	"github.com/rancher/sparse-tools/sparse/rest"
 )
 
 type TestFileInterval struct {
@@ -119,9 +121,11 @@ func TestRandomSyncCustomGB(t *testing.T) {
 }
 
 func RandomSync(t *testing.T, size, seed int64, srcPath, dstPath string, dstCreate bool) {
-	const localhost = "127.0.0.1"
-	const timeout = 10 //seconds
-	var remoteAddr = TCPEndPoint{localhost, 5000}
+	const (
+		localhost = "127.0.0.1"
+		timeout   = 10 //seconds
+		port      = "5000"
+	)
 
 	defer filesCleanup(srcPath, dstPath)
 
@@ -140,8 +144,8 @@ func RandomSync(t *testing.T, size, seed int64, srcPath, dstPath string, dstCrea
 
 	log.Info("Syncing...")
 
-	go TestServer(remoteAddr, timeout)
-	_, err := SyncFile(srcPath, remoteAddr, dstPath, timeout)
+	go rest.TestServer(port, dstPath, timeout)
+	err := SyncFile(srcPath, localhost+":"+port, timeout)
 
 	if err != nil {
 		t.Fatal("sync error")

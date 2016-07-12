@@ -83,13 +83,13 @@ func coalesce(parentFileIo FileIoProcessor, childFileIo FileIoProcessor) error {
 				size = int(hole - offset)
 			}
 			// read a batch from child
-			n, err := childFileIo.fileReadAt(buffer[:size], offset)
+			n, err := childFileIo.ReadAt(buffer[:size], offset)
 			if err != nil {
 				log.Error("Failed to read from childFile")
 				return err
 			}
 			// write a batch to parent
-			n, err = parentFileIo.fileWriteAt(buffer[:size], offset)
+			n, err = parentFileIo.WriteAt(buffer[:size], offset)
 			if err != nil {
 				log.Error("Failed to write to parentFile")
 				return err

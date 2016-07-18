@@ -1,5 +1,5 @@
-# alphorn
-sparse storage slab synchronization, etc.
+# sparse-tools
+sparse-tools for longhorn storage synchronization.
 
 ## Building
 

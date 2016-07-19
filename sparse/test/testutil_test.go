@@ -1,4 +1,4 @@
-package sparse
+package test
 
 import (
 	"io/ioutil"
@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	log "github.com/Sirupsen/logrus"
+	. "github.com/rancher/sparse-tools/sparse"
 )
 
 func filesAreEqual(aPath, bPath string) bool {
@@ -70,7 +71,7 @@ func createTestSparseFile(name string, layout []FileInterval) {
 				if offset+size > interval.End {
 					size = interval.End - offset
 				}
-				data := makeData(FileInterval{SparseData, Interval{offset, offset + size}})
+				data := MakeData(FileInterval{SparseData, Interval{offset, offset + size}})
 				f.WriteAt(data, offset)
 				offset += size
 			}
@@ -107,7 +108,7 @@ func checkTestSparseFile(name string, layout []FileInterval) error {
 				if offset+size > interval.End {
 					size = interval.End - offset
 				}
-				dataModel := makeData(FileInterval{SparseData, Interval{offset, offset + size}})
+				dataModel := MakeData(FileInterval{SparseData, Interval{offset, offset + size}})
 				data := make([]byte, size)
 				f.ReadAt(data, offset)
 				offset += size

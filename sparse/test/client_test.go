@@ -1,12 +1,17 @@
-package sparse
+package test
 
 import (
 	"testing"
+
+	. "github.com/rancher/sparse-tools/sparse"
+	"github.com/rancher/sparse-tools/sparse/rest"
 )
 
-const localhost = "127.0.0.1"
-const timeout = 5 //seconds
-var remoteAddr = TCPEndPoint{localhost, 5000}
+const (
+	localhost = "127.0.0.1"
+	timeout   = 5 //seconds
+	port      = "5000"
+)
 
 func TestSyncSmallFile1(t *testing.T) {
 	localPath := tempFilePath("ssync-small-src-")
@@ -73,8 +78,8 @@ func TestSyncAnyFile(t *testing.T) {
 
 func testSyncAnyFile(t *testing.T, src, dst string) {
 	// Sync
-	go TestServer(remoteAddr, timeout)
-	_, err := SyncFile(src, remoteAddr, dst, timeout)
+	go rest.TestServer(port, dst, timeout)
+	err := SyncFile(src, localhost+":"+port, timeout)
 
 	// Verify
 	if err != nil {
@@ -536,8 +541,8 @@ func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) (hashL
 	}
 
 	// Sync
-	go TestServer(remoteAddr, timeout)
-	hashLocal, err := SyncFile(localPath, remoteAddr, remotePath, timeout)
+	go rest.TestServer(port, remotePath, timeout)
+	err := SyncFile(localPath, localhost+":"+port, timeout)
 
 	// Verify
 	if err != nil {
@@ -571,8 +576,8 @@ func Benchmark_1G_InitFiles(b *testing.B) {
 }
 
 func Benchmark_1G_SendFiles_Whole(b *testing.B) {
-	go TestServer(remoteAddr, timeout)
-	_, err := SyncFile(localBigPath, remoteAddr, remoteBigPath, timeout)
+	go rest.TestServer(port, remoteBigPath, timeout)
+	err := SyncFile(localBigPath, localhost+":"+port, timeout)
 
 	if err != nil {
 		b.Fatal("sync error")
@@ -581,8 +586,8 @@ func Benchmark_1G_SendFiles_Whole(b *testing.B) {
 
 func Benchmark_1G_SendFiles_Diff(b *testing.B) {
 
-	go TestServer(remoteAddr, timeout)
-	_, err := SyncFile(localBigPath, remoteAddr, remoteBigPath, timeout)
+	go rest.TestServer(port, remoteBigPath, timeout)
+	err := SyncFile(localBigPath, localhost+":"+port, timeout)
 
 	if err != nil {
 		b.Fatal("sync error")

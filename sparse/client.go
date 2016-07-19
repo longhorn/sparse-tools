@@ -1,9 +1,11 @@
 package sparse
 
 import (
-	"encoding/gob"
+	"bytes"
+	"encoding/json"
 	"fmt"
-	"net"
+	"io/ioutil"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -11,37 +13,31 @@ import (
 	log "github.com/Sirupsen/logrus"
 )
 
-// TCPEndPoint tcp connection address
-type TCPEndPoint struct {
-	Host string
-	Port int16
+const (
+	httpClientTimeout = 5
+	numBlocksInBatch  = 32
+)
+
+type syncClient struct {
+	remote   string
+	timeout  int
+	filePath string
+	fileSize int64
+	fileIo   FileIoProcessor
 }
 
 const connectionRetries = 5
 
 // SyncFile synchronizes local file to remote host
-func SyncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int) ([]byte, error) {
-	var hashLocal []byte
-	var err error
-	for retries := 1; retries >= 0; retries-- {
-		hashLocal, err = syncFile(localPath, addr, remotePath, timeout, retries > 0)
-		if err != nil {
-			log.Error("SSync error:", err)
-		}
-		break
-	}
-	return hashLocal, err
-}
-
-func syncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int, retry bool) ([]byte, error) {
+func SyncFile(localPath string, remote string, timeout int) error {
 	fileInfo, err := os.Stat(localPath)
 	if err != nil {
-		log.Errorf("Failed to get size of local source file: %s, err: %s", localPath, err)
-		return nil, err
+		log.Errorf("Failed to get size of source file: %s, err: %s", localPath, err)
+		return err
 	}
 	fileSize := fileInfo.Size()
 	directIO := (fileSize%Blocks == 0)
-	log.Debugf("setting up directIo: %v", directIO)
+	log.Infof("source file size: %d, setting up directIo: %v", fileSize, directIO)
 
 	var fileIo FileIoProcessor
 	if directIO {
@@ -51,121 +47,66 @@ func syncFile(localPath string, addr TCPEndPoint, remotePath string, timeout int
 	}
 	if err != nil {
 		log.Error("Failed to open local source file:", localPath)
-		return nil, err
+		return err
 	}
 	defer fileIo.Close()
 
-	conn := connect(addr.Host, strconv.Itoa(int(addr.Port)), timeout)
-	if nil == conn {
-		err = fmt.Errorf("Failed to connect to %v", addr)
-		log.Error(err)
-		return nil, err
-	}
-	defer conn.Close()
+	client := &syncClient{remote, timeout, localPath, fileSize, fileIo}
 
-	encoder := gob.NewEncoder(conn)
-	decoder := gob.NewDecoder(conn)
+	defer client.closeServer() // kill the server no matter success or not, best effort
 
-	session := &SyncSessionClient{encoder, decoder}
-	err = session.sendSyncRequest(remotePath, fileSize)
+	err = client.syncFileContent(fileIo, fileSize)
 	if err != nil {
-		log.Errorf("Sync request to %s failed, error: %s", remotePath, err)
-		return nil, err
+		log.Errorf("syncFileContent failed: %s", err)
+		return err
 	}
 
-	err = session.syncFileContent(fileIo, fileSize)
-	if err != nil {
-		log.Error("syncFileContent failed: ", err)
-		return nil, err
-	}
-
-	return nil, err
+	return err
 }
 
-func connect(host, port string, timeout int) net.Conn {
-	// connect to this socket
-	endpoint := host + ":" + port
-	raddr, err := net.ResolveTCPAddr("tcp", endpoint)
-	if err != nil {
-		log.Fatal("Connection address resolution error:", err)
-	}
-	timeStart := time.Now()
-	timeStop := timeStart.Add(time.Duration(timeout) * time.Second)
-	for timeNow := timeStart; timeNow.Before(timeStop); timeNow = time.Now() {
-		conn, err := net.DialTCP("tcp", nil, raddr)
-		if err == nil {
-			log.Info("connected to server")
-			return conn
-		}
-		log.Warn("Failed connection to", endpoint, "Retrying...")
-		if timeNow != timeStart {
-			// only sleep after the second attempt to speedup tests
-			time.Sleep(1 * time.Second)
-		}
-	}
-	return nil
-}
-
-type SyncSessionClient struct {
-	encoder *gob.Encoder
-	decoder *gob.Decoder
-}
-
-func (session *SyncSessionClient) send(e interface{}) error {
-	return session.encoder.Encode(e)
-}
-
-func (session *SyncSessionClient) receive(e interface{}) error {
-	return session.decoder.Decode(e)
-}
-
-func (session *SyncSessionClient) syncFileContent(file FileIoProcessor, fileSize int64) error {
+func (client *syncClient) syncFileContent(file FileIoProcessor, fileSize int64) error {
 	exts, err := GetFiemapExtents(file)
 	if err != nil {
 		return err
 	}
 
+	err = client.openServer()
+	if err != nil {
+		return fmt.Errorf("openServer failed, err: %s", err)
+	}
+
 	var lastIntervalEnd int64
 	var holeInterval Interval
 
-	// Process each extent
 	for _, e := range exts {
 		interval := Interval{int64(e.Logical), int64(e.Logical + e.Length)}
-		log.Debugf("Extent: %s, %x", interval, e.Flags)
 
+		// report hole
 		if lastIntervalEnd < interval.Begin {
-			// report hole
 			holeInterval = Interval{lastIntervalEnd, interval.Begin}
-			log.Debugf("Here is a hole: %s", holeInterval)
-
-			// syncing hole interval
-			err := session.SyncHoleInterval(holeInterval)
+			err := client.syncHoleInterval(holeInterval)
 			if err != nil {
-				log.Debugf("SyncHoleInterval failed: %s", holeInterval)
-				return err
+				return fmt.Errorf("syncHoleInterval %s failed, err: %s", holeInterval, err)
 			}
 		}
-		// report data
-		log.Debugf("Here is a data: %s", interval)
 		lastIntervalEnd = interval.End
 
-		// syncing data interval
-		err := session.SyncDataInterval(file, interval)
+		// report data
+		err := client.syncDataInterval(file, interval)
 		if err != nil {
-			log.Debugf("SyncDataInterval failed: %s", interval)
-			return err
+			return fmt.Errorf("syncDataInterval %s failed, err: %s", interval, err)
 		}
+
 		if e.Flags&FIEMAP_EXTENT_LAST != 0 {
+
 			// report last hole
 			if lastIntervalEnd < fileSize {
 				holeInterval := Interval{lastIntervalEnd, fileSize}
-				log.Debugf("Here is a hole: %s", holeInterval)
 
 				// syncing hole interval
-				err = session.SyncHoleInterval(holeInterval)
+				err = client.syncHoleInterval(holeInterval)
 				if err != nil {
-					log.Debugf("SyncHoleInterval failed: %s", holeInterval)
-					return err
+					return fmt.Errorf("syncHoleInterval %s failed, err: %s", holeInterval, err)
 				}
 			}
 		}
@@ -173,85 +114,121 @@ func (session *SyncSessionClient) syncFileContent(file FileIoProcessor, fileSize
 
 	// special case, the whole file is a hole
 	if len(exts) == 0 && fileSize != 0 {
-		// report hole
 		holeInterval = Interval{0, fileSize}
-		log.Debugf("The file is a hole: %s", holeInterval)
+		log.Infof("The file is a hole: %s", holeInterval)
 
 		// syncing hole interval
-		err := session.SyncHoleInterval(holeInterval)
+		err := client.syncHoleInterval(holeInterval)
 		if err != nil {
-			log.Debugf("SyncHoleInterval failed: %s", holeInterval)
-			return err
+			return fmt.Errorf("syncHoleInterval %s failed, err: %s", holeInterval, err)
 		}
 	}
 
-	return session.send(requestHeader{requestMagic, syncDone})
+	return nil
 }
 
-func (session *SyncSessionClient) sendSyncRequest(path string, size int64) error {
-	err := session.send(requestHeader{requestMagic, syncRequestCode})
-	if err != nil {
-		log.Debug("send requestHeader failed: ", err)
-		return err
+func (client *syncClient) sendHTTPRequest(method string, action string, interval Interval, data []byte) (*http.Response, error) {
+	httpClient := &http.Client{Timeout: time.Duration(httpClientTimeout * time.Second)}
+
+	url := fmt.Sprintf("http://%s/v1-ssync/%s", client.remote, action)
+
+	var req *http.Request
+	var err error
+	if data != nil {
+		req, err = http.NewRequest(method, url, bytes.NewBuffer(data))
+	} else {
+		req, err = http.NewRequest(method, url, nil)
 	}
-	err = session.send(path)
 	if err != nil {
-		log.Debug("send path failed: ", err)
-		return err
-	}
-	err = session.send(size)
-	if err != nil {
-		log.Debug("send size failed: ", err)
-		return err
+		return nil, err
 	}
 
-	var ack bool
-	err = session.receive(&ack)
+	req.Header.Add("Accept", "application/json")
+
+	q := req.URL.Query()
+	q.Add("begin", strconv.FormatInt(interval.Begin, 10))
+	q.Add("end", strconv.FormatInt(interval.End, 10))
+	req.URL.RawQuery = q.Encode()
+
+	log.Debugf("method: %s, url with query string: %s, data len: %d", method, req.URL.String(), len(data))
+
+	return httpClient.Do(req)
+}
+
+func (client *syncClient) openServer() error {
+	var err error
+	var resp *http.Response
+
+	timeStart := time.Now()
+	timeStop := timeStart.Add(time.Duration(client.timeout) * time.Second)
+	for timeNow := timeStart; timeNow.Before(timeStop); timeNow = time.Now() {
+		resp, err = client.sendHTTPRequest("GET", "open", Interval{0, client.fileSize}, nil)
+		if err == nil {
+			break
+		}
+		log.Warnf("Failed to open server: %s, Retrying...", client.remote)
+		if timeNow != timeStart {
+			// only sleep after the second attempt to speedup tests
+			time.Sleep(1 * time.Second)
+		}
+	}
+
 	if err != nil {
-		log.Debug("decode ack from server failed: ", err)
-		return err
+		return fmt.Errorf("open failed, err: %s", err)
 	}
-	log.Debugf("got SyncRequest ack back: %v", ack)
-	if ack == false {
-		return fmt.Errorf("Got negative ack from server")
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("resp.StatusCode(%d) != http.StatusOK", resp.StatusCode)
 	}
+	resp.Body.Close()
 
 	return nil
 }
 
-func (session *SyncSessionClient) SyncHoleInterval(holeInterval Interval) error {
-	/*
-		sync hole interval:
+func (client *syncClient) closeServer() {
+	client.sendHTTPRequest("POST", "close", Interval{0, 0}, nil)
+}
 
-		1. send the hole range(start and end byte offsets) to ensure the other end
-			has pure hole in this range. If not, it will punch hole for the entire range
-			then it will asking for continue
-	*/
-	log.Debug("syncing hole: ", holeInterval)
-	err := session.send(requestHeader{requestMagic, syncHole})
+func (client *syncClient) syncHoleInterval(holeInterval Interval) error {
+	resp, err := client.sendHTTPRequest("POST", "sendHole", holeInterval, nil)
 	if err != nil {
-		log.Debug("encode syncHole cmd failed: ", err)
-		return err
+		return fmt.Errorf("sendHole failed, err: %s", err)
 	}
-	err = session.send(holeInterval)
-	if err != nil {
-		log.Debugf("encode holeInterval: %s failed: %s", holeInterval, err)
-		return err
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("resp.StatusCode(%d) != http.StatusOK", resp.StatusCode)
 	}
-	var reply replyHeader
-	err = session.receive(&reply)
-	if err != nil {
-		log.Debug("decode syncHole cmd reply failed: ", err)
-		return err
-	}
-	if reply.Code == continueSync {
-		log.Debug("got continueSync reply from server")
-	}
+	resp.Body.Close()
+
 	return nil
 }
 
-func (session *SyncSessionClient) SyncDataInterval(file FileIoProcessor, dataInterval Interval) error {
-	const batch = 32 * Blocks
+func (client *syncClient) getServerChecksum(checksumInterval Interval) ([]byte, error) {
+	resp, err := client.sendHTTPRequest("GET", "getChecksum", checksumInterval, nil)
+	if err != nil {
+		return nil, fmt.Errorf("getChecksum failed, err: %s", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("resp.StatusCode(%d) != http.StatusOK", resp.StatusCode)
+	}
+	defer resp.Body.Close()
+
+	return ioutil.ReadAll(resp.Body)
+}
+
+func (client *syncClient) writeData(dataInterval Interval, data []byte) error {
+	resp, err := client.sendHTTPRequest("POST", "writeData", dataInterval, data)
+	if err != nil {
+		return fmt.Errorf("writeData failed, err: %s", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("resp.StatusCode(%d) != http.StatusOK", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	return nil
+}
+
+func (client *syncClient) syncDataInterval(file FileIoProcessor, dataInterval Interval) error {
+	batch := numBlocksInBatch * Blocks
 
 	// Process data in chunks
 	for offset := dataInterval.Begin; offset < dataInterval.End; {
@@ -264,93 +241,48 @@ func (session *SyncSessionClient) SyncDataInterval(file FileIoProcessor, dataInt
 		/*
 			sync the batch data interval:
 
-			1. send the data range(start and end byte offsets) to ensure the other end
-				has pure data in this range, if so, the other end will ask for checksum
-				and calculate its own at the same time. If not, it will ask for data
-			2. waiting for the reply asking checksum or data
-			3. if the other end asking for checksum, then calculate checksum and send checksum
-			4. if the other end asking for data, then send data
-			5. if the other end asking continue, then data interval is in sync and move on
-				to the next batch interval
+			1. ask server for checksum
+			2. if server send back non-zero length checksum, then calculate local checksum and compare
+			3. if server checksum sent back is zero length or comparison results differences, send data
 		*/
-		log.Debug("syncing data batch interval: ", batchInterval)
-		err := session.send(requestHeader{requestMagic, syncData})
+		body, err := client.getServerChecksum(batchInterval)
 		if err != nil {
-			log.Debug("encode syncData cmd reply failed: ", err)
+			log.Errorf("getServerChecksum batchInterval:%s failed, err: %s", batchInterval, err)
 			return err
 		}
-		err = session.send(batchInterval)
-		if err != nil {
-			log.Debug("encode batchInterval: %s failed, err: %s", batchInterval, err)
-			return err
-		}
-
-		var reply replyHeader
-		err = session.receive(&reply)
-		if err != nil {
-			log.Debug("decode syncData cmd reply failed: ", err)
+		var serverCheckSum []byte
+		if err := json.Unmarshal(body, &serverCheckSum); err != nil {
+			log.Errorf("json.Unmarshal serverCheckSum failed, err: %s", err)
 			return err
 		}
 
-		if reply.Code == sendChecksum {
-			log.Debug("server reply asking for checksum")
-
-			// calculate checksum for the data batch interval
+		serverNeedData := true
+		if len(serverCheckSum) != 0 {
+			// calculate local checksum for the data batch interval
 			localCheckSum, err := HashDataInterval(file, batchInterval)
 			if err != nil {
 				log.Errorf("HashDataInterval locally: %s failed, err: %s", batchInterval, err)
 				return err
 			}
 
-			// send the checksum
-			log.Debug("sending checksum")
-			err = session.send(localCheckSum)
-			if err != nil {
-				log.Errorf("encode localCheckSum for data interval: %s failed, err: %s", batchInterval, err)
-				return err
-			}
-
-			log.Debug("waiting for either continueSync or sendData request...")
-			err = session.receive(&reply)
-			if err != nil {
-				log.Debug("decode syncData cmd reply failed: ", err)
-				return err
-			}
+			// compare server checksum with localCheckSum
+			serverNeedData = !bytes.Equal(serverCheckSum, localCheckSum)
 		}
-		if reply.Code == sendData {
-			log.Debug("server reply asking for data")
-
-			// read data from the file
+		if serverNeedData {
 			dataBuffer, err := ReadDataInterval(file, batchInterval)
 			if err != nil {
-				log.Errorf("ReadDataInterval locally: %s failed, err: %s", batchInterval, err)
+				log.Errorf("ReadDataInterval for batchInterval: %s failed, err: %s", batchInterval, err)
 				return err
 			}
 
 			// send data buffer
 			log.Debugf("sending dataBuffer size: %d", len(dataBuffer))
-			err = session.send(dataBuffer)
+			err = client.writeData(batchInterval, dataBuffer)
 			if err != nil {
-				log.Errorf("encode dataBuffer for data interval: %s failed, err: %s", batchInterval, err)
-				return err
-			}
-
-			log.Debug("waiting for continueSync request...")
-			err = session.receive(&reply)
-			if err != nil {
-				log.Debug("decode syncData cmd reply failed: ", err)
+				log.Errorf("writeData for batchInterval: %s failed, err: %s", batchInterval, err)
 				return err
 			}
 		}
-		if reply.Code == continueSync {
-			log.Debug("server is reporting data batch interval match")
-		} else {
-			errorStr := fmt.Sprintf("expecting server to send continueSync, but got: %s", reply.Code)
-			log.Errorf(errorStr)
-			return fmt.Errorf(errorStr)
-		}
-
-		log.Debug("syncing data batch interval is done")
 		offset += batchInterval.Len()
 	}
 	return nil

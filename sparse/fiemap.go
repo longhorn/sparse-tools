@@ -87,6 +87,24 @@ func (f FiemapFile) Fiemap(size uint32) (uint32, []Extent, syscall.Errno) {
 	return t.MappedExtents, extents[1 : 1+t.MappedExtents], err
 }
 
+func (f FiemapFile) FiemapRegion(numExts uint32, start uint64, length uint64) (uint32, []Extent, syscall.Errno) {
+	extents := make([]Extent, numExts+1)
+	ptr := unsafe.Pointer(uintptr(unsafe.Pointer(&extents[0])) + (ExtentSize - FiemapSize))
+
+	t := (*fiemap)(ptr)
+	t.Start = start
+	t.Length = length
+	t.Flags = FIEMAP_FLAG_SYNC
+	t.ExtentCount = numExts
+
+	_, _, err := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), FS_IOC_FIEMAP, uintptr(ptr))
+
+	if numExts == 0 {
+		return t.MappedExtents, nil, err
+	}
+	return t.MappedExtents, extents[1 : 1+t.MappedExtents], err
+}
+
 // Fallocate : allocate using fallocate
 func (f FiemapFile) Fallocate(offset int64, length int64) error {
 	return syscall.Fallocate(int(f.Fd()), 0, offset, length)

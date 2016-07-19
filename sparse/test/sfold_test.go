@@ -1,9 +1,10 @@
-package sparse
+package test
 
 import (
 	"testing"
 
 	log "github.com/Sirupsen/logrus"
+	. "github.com/rancher/sparse-tools/sparse"
 )
 
 func TestFoldLayout1(t *testing.T) {

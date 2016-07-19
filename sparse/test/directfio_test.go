@@ -1,4 +1,4 @@
-package sparse
+package test
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 
 	log "github.com/Sirupsen/logrus"
+	. "github.com/rancher/sparse-tools/sparse"
 )
 
 func tempFilePathDirectIo() string {
@@ -65,7 +66,7 @@ func TestDirectFileIO1(t *testing.T) {
 		}
 		defer fileIo.Close()
 
-		_, err = fileIo.fileWriteAt(data1, int64(blocks*BlockSize))
+		_, err = fileIo.WriteAt(data1, int64(blocks*BlockSize))
 		if err != nil {
 			t.Fatal("Failed to write", err)
 		}
@@ -80,7 +81,7 @@ func TestDirectFileIO1(t *testing.T) {
 		}
 		defer fileIo.Close()
 
-		_, err = fileIo.fileReadAt(data2, int64(blocks*BlockSize))
+		_, err = fileIo.ReadAt(data2, int64(blocks*BlockSize))
 		if err != nil {
 			t.Fatal("Failed to read", err)
 		}
@@ -109,7 +110,7 @@ func TestDirectFileIO2(t *testing.T) {
 		}
 		defer fileIo.Close()
 
-		_, err = fileIo.fileWriteAt(data1, int64(blocks*BlockSize))
+		_, err = fileIo.WriteAt(data1, int64(blocks*BlockSize))
 		if err != nil {
 			t.Fatal("Failed to write", err)
 		}
@@ -124,7 +125,7 @@ func TestDirectFileIO2(t *testing.T) {
 		}
 		defer fileIo.Close()
 
-		_, err = fileIo.fileReadAt(data2, int64(blocks*BlockSize))
+		_, err = fileIo.ReadAt(data2, int64(blocks*BlockSize))
 		if err != nil {
 			t.Fatal("Failed to read", err)
 		}
@@ -151,7 +152,7 @@ func write(b *testing.B, path string, done chan<- bool, batchSize int, offset, s
 	defer fileIo.Close()
 
 	for pos := offset; pos < offset+size; pos += int64(batchSize) {
-		_, err = fileIo.fileWriteAt(data, pos)
+		_, err = fileIo.WriteAt(data, pos)
 		if err != nil {
 			b.Fatal("Failed to write", err)
 		}
@@ -169,7 +170,7 @@ func read(b *testing.B, path string, done chan<- bool, batchSize int, offset, si
 	defer fileIo.Close()
 
 	for pos := offset; pos < offset+size; pos += int64(batchSize) {
-		_, err = fileIo.fileReadAt(data, pos)
+		_, err = fileIo.ReadAt(data, pos)
 		if err != nil {
 			b.Fatal("Failed to read", err)
 		}
@@ -188,7 +189,7 @@ func writeUnaligned(b *testing.B, path string, done chan<- bool, batchSize int, 
 	defer fileIo.Close()
 
 	for pos := offset; pos < offset+size; pos += int64(batchSize) {
-		_, err = fileIo.fileWriteAt(data, pos)
+		_, err = fileIo.WriteAt(data, pos)
 		if err != nil {
 			b.Fatal("Failed to write", err)
 		}
@@ -206,7 +207,7 @@ func readUnaligned(b *testing.B, path string, done chan<- bool, batchSize int, o
 	defer fileIo.Close()
 
 	for pos := offset; pos < offset+size; pos += int64(batchSize) {
-		_, err = fileIo.fileReadAt(data, pos)
+		_, err = fileIo.ReadAt(data, pos)
 		if err != nil {
 			b.Fatal("Failed to read", err)
 		}

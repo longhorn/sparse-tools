@@ -125,7 +125,10 @@ func checkTestSparseFile(name string, layout []FileInterval) error {
 			if len(layoutActual) != 1 {
 				return errors.New(fmt.Sprint("hole check failure at", interval))
 			}
-			if layoutActual[0] != interval {
+			// actual hole must cover interval span
+			if layoutActual[0].Kind != interval.Kind ||
+				layoutActual[0].Begin > interval.Begin ||
+				layoutActual[0].End < interval.End {
 				return errors.New(fmt.Sprint("hole equality check failure at", interval))
 			}
 		}

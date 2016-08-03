@@ -87,6 +87,21 @@ func TestFoldFile2(t *testing.T) {
 	testFoldFile(t, layoutFrom, layoutTo)
 }
 
+func TestFoldFile3(t *testing.T) {
+	// H H H  => D H H
+	layoutFrom := []FileInterval{
+		{SparseHole, Interval{0, 1 * Blocks}},
+		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+	}
+	layoutTo := []FileInterval{
+		{SparseData, Interval{0, 1 * Blocks}},
+		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+	}
+	testFoldFile(t, layoutFrom, layoutTo)
+}
+
 func foldLayout(from, to []FileInterval) []FileInterval {
 	if len(from) != len(to) {
 		log.Fatal("foldLayout: non equal length not implemented")

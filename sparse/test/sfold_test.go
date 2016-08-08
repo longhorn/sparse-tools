@@ -1,61 +1,12 @@
 package test
 
 import (
+	"os"
 	"testing"
 
 	log "github.com/Sirupsen/logrus"
 	. "github.com/rancher/sparse-tools/sparse"
 )
-
-func TestFoldLayout1(t *testing.T) {
-	// D H D => D D H
-	layoutFrom := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
-	}
-	layoutTo := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
-	}
-	layoutModel := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
-	}
-
-	layoutResult := foldLayout(layoutFrom, layoutTo)
-	status := checkLayout(layoutResult, layoutModel)
-	if !status {
-		t.Fatal("Folded layout diverged")
-	}
-}
-
-func TestFoldLayout2(t *testing.T) {
-	// H D H  => D H H
-	layoutFrom := []FileInterval{
-		{SparseHole, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
-	}
-	layoutTo := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
-	}
-	layoutModel := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
-	}
-
-	layoutResult := foldLayout(layoutFrom, layoutTo)
-	status := checkLayout(layoutResult, layoutModel)
-	if !status {
-		t.Fatal("Folded layout diverged")
-	}
-}
 
 func TestFoldFile1(t *testing.T) {
 	// D H D => D D H
@@ -102,63 +53,120 @@ func TestFoldFile3(t *testing.T) {
 	testFoldFile(t, layoutFrom, layoutTo)
 }
 
-func foldLayout(from, to []FileInterval) []FileInterval {
-	if len(from) != len(to) {
-		log.Fatal("foldLayout: non equal length not implemented")
+func TestFoldFile4(t *testing.T) {
+	// D D H  => H H H
+	layoutFrom := []FileInterval{
+		{SparseData, Interval{0, 1 * Blocks}},
+		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
+		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
 	}
-	result := make([]FileInterval, len(to))
-	copy(result, to)
-	for i, interval := range from {
-		if to[i].Interval != interval.Interval {
-			log.Fatal("foldLayout: subinterval feature not implemented")
-		}
-		if interval.Kind == SparseData {
-			result[i] = interval
-		}
+	layoutTo := []FileInterval{
+		{SparseHole, Interval{0, 1 * Blocks}},
+		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
 	}
-	return result
+	testFoldFile(t, layoutFrom, layoutTo)
 }
 
-func checkLayout(from, to []FileInterval) bool {
-	if len(from) != len(to) {
-		log.Error("checkLayout: non equal length:", len(from), len(to))
-		return false
+func TestFoldFile5(t *testing.T) {
+	// D D D  => D H D
+	layoutFrom := []FileInterval{
+		{SparseData, Interval{0, 1 * Blocks}},
+		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
+		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
 	}
-	for i, interval := range from {
-		if to[i] != interval {
-			log.Error("checkayout: intervals not equal:", interval, to[i])
-			return false
+	layoutTo := []FileInterval{
+		{SparseData, Interval{0, 1 * Blocks}},
+		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
+	}
+	testFoldFile(t, layoutFrom, layoutTo)
+}
+
+func TestFoldFile6(t *testing.T) {
+	// H H D  => D D D
+	layoutFrom := []FileInterval{
+		{SparseHole, Interval{0, 1 * Blocks}},
+		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
+	}
+	layoutTo := []FileInterval{
+		{SparseData, Interval{0, 1 * Blocks}},
+		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
+		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
+	}
+	testFoldFile(t, layoutFrom, layoutTo)
+}
+
+func foldLayout(from []FileInterval, to []FileInterval, fromPath string, toPath string, expectedPath string) {
+	if from[len(from)-1].End != to[len(to)-1].End {
+		log.Fatal("foldLayout: non equal length not implemented")
+	}
+
+	// create expectedPath file
+	expFile, err := os.Create(expectedPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = expFile.Truncate(from[len(from)-1].End)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	copySparseData(to, toPath, expFile)
+	copySparseData(from, fromPath, expFile)
+}
+
+func copySparseData(fromInterval []FileInterval, fromPath string, toFile *os.File) {
+	_, dataIntervals := getDataIntervalsFromFileIntervals(fromInterval)
+	fromFile, err := os.Open(fromPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// copy all file data
+	for _, interval := range dataIntervals {
+		// read from fromFile and write to toFile
+		data := make([]byte, interval.End-interval.Begin)
+		_, err := fromFile.ReadAt(data, interval.Begin)
+		if err != nil {
+			log.Fatal(err)
+		}
+		_, err = toFile.WriteAt(data, interval.Begin)
+		if err != nil {
+			log.Fatal(err)
 		}
 	}
-	return true
 }
 
 func testFoldFile(t *testing.T, layoutFrom, layoutTo []FileInterval) (hashLocal []byte) {
-	localPath := tempFilePath("sfold-src-")
-	remotePath := tempFilePath("sfold-dst-")
+	fromPath := tempFilePath("sfold-src-")
+	toPath := tempFilePath("sfold-dst-")
+	expectedPath := tempFilePath("sfold-exp-")
 
 	// Only log errors
 	log.SetLevel(log.ErrorLevel)
 
-	filesCleanup(localPath, remotePath)
-	defer filesCleanup(localPath, remotePath)
+	filesCleanup(fromPath, toPath)
+	defer filesCleanup(fromPath, toPath)
+	defer fileCleanup(expectedPath)
 
 	// Create test files
-	createTestSparseFile(localPath, layoutFrom)
-	createTestSparseFile(remotePath, layoutTo)
-	layoutResult := foldLayout(layoutFrom, layoutTo)
+	createTestSparseFile(fromPath, layoutFrom)
+	createTestSparseFile(toPath, layoutTo)
+	foldLayout(layoutFrom, layoutTo, fromPath, toPath, expectedPath)
 
 	// Fold
-	err := FoldFile(localPath, remotePath)
+	err := FoldFile(fromPath, toPath)
 
 	// Verify
 	if err != nil {
 		t.Fatal("Fold error:", err)
 	}
 
-	err = checkTestSparseFile(remotePath, layoutResult)
+	err = checkSparseFiles(toPath, expectedPath)
 	if err != nil {
-		t.Fatal("Folded content diverged:", err)
+		t.Fatal("Folded file is different from expected:", err)
 	}
 	return
 }

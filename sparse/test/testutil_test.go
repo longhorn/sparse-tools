@@ -2,16 +2,18 @@ package test
 
 import (
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"os/exec"
+	"time"
 
-	"bytes"
-	"errors"
 	"fmt"
 
 	log "github.com/Sirupsen/logrus"
 	. "github.com/rancher/sparse-tools/sparse"
 )
+
+const batch = int64(32) // number of blocks for single read/write
 
 func filesAreEqual(aPath, bPath string) bool {
 	cmd := exec.Command("diff", aPath, bPath)
@@ -50,89 +52,132 @@ func tempBigFilePath(prefix string) string {
 	return f.Name()
 }
 
-const batch = int64(32) // Blocks for single read/write
-
 func createTestSparseFile(name string, layout []FileInterval) {
+	// convert FileInterval with hole and data segments into pure data segments
+	// at the same time merge adjacent data intervals
+	fileSize, dataIntervals := getDataIntervalsFromFileIntervals(layout)
+
+	// create sparse files with data segments
+	doCreateSparseFile(name, fileSize, dataIntervals)
+}
+
+func getDataIntervalsFromFileIntervals(layout []FileInterval) (int64, []Interval) {
+	var dataIntervals []Interval
+	var previousData *Interval
+	previousType := SparseHole
+	fileSizeInBlocks := int64(0)
+	for _, fileInterval := range layout {
+		if SparseData == fileInterval.Kind {
+			if previousType == SparseData {
+				// merge the data
+				previousData.End = fileInterval.End
+			}
+			previousType = fileInterval.Kind
+			dataIntervals = append(dataIntervals, fileInterval.Interval)
+			previousData = &(dataIntervals[len(dataIntervals)-1])
+		} else {
+			previousType = SparseHole
+		}
+		fileSizeInBlocks += (fileInterval.End - fileInterval.Begin)
+	}
+
+	return fileSizeInBlocks, dataIntervals
+}
+
+func doCreateSparseFile(name string, fileSize int64, layout []Interval) {
+	// Fill up file with layout data
 	f, err := os.Create(name)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer f.Close()
-
-	if 0 == len(layout) {
-		return // empty file
-	}
-
-	// Fill up data
-	for _, interval := range layout {
-		if SparseData == interval.Kind {
-			size := batch * Blocks
-			for offset := interval.Begin; offset < interval.End; {
-				if offset+size > interval.End {
-					size = interval.End - offset
-				}
-				data := MakeData(FileInterval{SparseData, Interval{offset, offset + size}})
-				f.WriteAt(data, offset)
-				offset += size
-			}
-		}
-	}
-
-	// Resize the file to the last hole
-	last := len(layout) - 1
-	if SparseHole == layout[last].Kind {
-		if err := f.Truncate(layout[last].End); err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	f.Sync()
-}
-
-func checkTestSparseFile(name string, layout []FileInterval) error {
-	f, err := os.Open(name)
+	err = f.Truncate(fileSize)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer f.Close()
 
-	if 0 == len(layout) {
-		return nil // empty file
-	}
-
-	// Read and check data
+	rand := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for _, interval := range layout {
-		if SparseData == interval.Kind {
-			size := batch * Blocks
-			for offset := interval.Begin; offset < interval.End; {
-				if offset+size > interval.End {
-					size = interval.End - offset
-				}
-				dataModel := MakeData(FileInterval{SparseData, Interval{offset, offset + size}})
-				data := make([]byte, size)
-				f.ReadAt(data, offset)
-				offset += size
-
-				if !bytes.Equal(data, dataModel) {
-					return errors.New(fmt.Sprint("data equality check failure at", interval))
-				}
+		size := batch * BlockSize
+		for offset := interval.Begin; offset < interval.End; {
+			if offset+size > interval.End {
+				size = interval.End - offset
 			}
-		} else if SparseHole == interval.Kind {
-			layoutActual, err := RetrieveLayout(f, interval.Interval)
+			data := makeIntervalData(size, rand)
+			_, err = f.WriteAt(data, offset)
 			if err != nil {
-				return errors.New(fmt.Sprint("hole retrieval failure at", interval, err))
+				log.Fatal(err)
 			}
-			if len(layoutActual) != 1 {
-				return errors.New(fmt.Sprint("hole check failure at", interval))
-			}
-			// actual hole must cover interval span
-			if layoutActual[0].Kind != interval.Kind ||
-				layoutActual[0].Begin > interval.Begin ||
-				layoutActual[0].End < interval.End {
-				return errors.New(fmt.Sprint("hole equality check failure at", interval))
-			}
+			offset += size
 		}
 	}
+	f.Sync()
+	f.Close()
+}
+
+func mergeExts(exts []Extent) []Interval {
+	if len(exts) == 0 {
+		return nil
+	}
+	var merged []Interval
+	previous := Interval{int64(exts[0].Logical), int64(exts[0].Logical + exts[0].Length)}
+	for i := 1; i < len(exts); i++ {
+		if int64(exts[i].Logical) > previous.End {
+			// current extent is not continuous of previous, so append previous
+			merged = append(merged, previous)
+			previous = Interval{int64(exts[i].Logical), int64(exts[i].Logical + exts[i].Length)}
+		} else {
+			previous.End += int64(exts[i].Length)
+		}
+	}
+	// append the last separated interval
+	merged = append(merged, previous)
+
+	return merged
+}
+
+func checkSparseFiles(srcPath string, dstPath string) error {
+	srcFileIo, err := NewDirectFileIoProcessor(srcPath, os.O_RDWR, 0666, true)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer srcFileIo.Close()
+
+	dstFileIo, err := NewDirectFileIoProcessor(dstPath, os.O_RDWR, 0666, true)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer dstFileIo.Close()
+
+	// ensure contents are equal
+	equal := filesAreEqual(srcPath, dstPath)
+	if !equal {
+		return fmt.Errorf("files(src: %s, dst: %s) contents are different", srcPath, dstPath)
+	}
+
+	// ensure the layout are equal
+	srcExts, err := GetFiemapExtents(srcFileIo)
+	if err != nil {
+		log.Fatalf("GetFiemapExtents of file: %s failed", srcPath)
+	}
+	dstExts, err := GetFiemapExtents(dstFileIo)
+	if err != nil {
+		log.Fatalf("GetFiemapExtents of file: %s failed", dstPath)
+	}
+
+	// physical exts need to be merged
+	srcIntervals := mergeExts(srcExts)
+	dstIntervals := mergeExts(dstExts)
+
+	if len(srcIntervals) != len(dstIntervals) {
+		return fmt.Errorf("files(src: %s, dst: %s) Intervals lengths(src: %d, dst: %d) are different", srcPath, dstPath, len(srcIntervals), len(dstIntervals))
+	}
+	for i, srcInterval := range srcIntervals {
+		if srcInterval.Begin != dstIntervals[i].Begin ||
+			srcInterval.End != dstIntervals[i].End {
+			return fmt.Errorf("files(src: %s, dst: %s) Interval[%d] are different", srcPath, dstPath, i)
+		}
+	}
+
 	return nil // success
 }
 

@@ -11,14 +11,14 @@ import (
 func TestFoldFile1(t *testing.T) {
 	// D H D => D D H
 	layoutFrom := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutTo := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	testFoldFile(t, layoutFrom, layoutTo)
 }
@@ -26,14 +26,14 @@ func TestFoldFile1(t *testing.T) {
 func TestFoldFile2(t *testing.T) {
 	// H D H  => D H H
 	layoutFrom := []FileInterval{
-		{SparseHole, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutTo := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	testFoldFile(t, layoutFrom, layoutTo)
 }
@@ -41,14 +41,14 @@ func TestFoldFile2(t *testing.T) {
 func TestFoldFile3(t *testing.T) {
 	// H H H  => D H H
 	layoutFrom := []FileInterval{
-		{SparseHole, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutTo := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	testFoldFile(t, layoutFrom, layoutTo)
 }
@@ -56,14 +56,14 @@ func TestFoldFile3(t *testing.T) {
 func TestFoldFile4(t *testing.T) {
 	// D D H  => H H H
 	layoutFrom := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutTo := []FileInterval{
-		{SparseHole, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	testFoldFile(t, layoutFrom, layoutTo)
 }
@@ -71,14 +71,14 @@ func TestFoldFile4(t *testing.T) {
 func TestFoldFile5(t *testing.T) {
 	// D D D  => D H D
 	layoutFrom := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutTo := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	testFoldFile(t, layoutFrom, layoutTo)
 }
@@ -86,14 +86,14 @@ func TestFoldFile5(t *testing.T) {
 func TestFoldFile6(t *testing.T) {
 	// H H D  => D D D
 	layoutFrom := []FileInterval{
-		{SparseHole, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutTo := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	testFoldFile(t, layoutFrom, layoutTo)
 }

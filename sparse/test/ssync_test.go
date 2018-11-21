@@ -112,7 +112,7 @@ func generateRandomDataLayout(prefix string, size, seed int64) []Interval {
 			length = size - offset
 		}
 
-		interval := Interval{offset, offset + length}
+		interval := Interval{Begin: offset, End: offset + length}
 		offset += interval.Len()
 
 		// 50% chance we have a data

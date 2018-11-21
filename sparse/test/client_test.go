@@ -93,14 +93,14 @@ func testSyncAnyFile(t *testing.T, src, dst string) {
 func TestSyncFile1(t *testing.T) {
 	// D H D => D D H
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
@@ -108,14 +108,14 @@ func TestSyncFile1(t *testing.T) {
 func TestSyncFile2(t *testing.T) {
 	// H D H  => D H H
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
@@ -123,13 +123,13 @@ func TestSyncFile2(t *testing.T) {
 func TestSyncFile3(t *testing.T) {
 	// D H D => D D
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
@@ -137,13 +137,13 @@ func TestSyncFile3(t *testing.T) {
 func TestSyncFile4(t *testing.T) {
 	// H D H  => D H
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
@@ -151,13 +151,13 @@ func TestSyncFile4(t *testing.T) {
 func TestSyncFile5(t *testing.T) {
 	// H D H  => H D
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseHole, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
@@ -165,12 +165,12 @@ func TestSyncFile5(t *testing.T) {
 func TestSyncFile6(t *testing.T) {
 	// H D H  => D
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
@@ -178,12 +178,12 @@ func TestSyncFile6(t *testing.T) {
 func TestSyncFile7(t *testing.T) {
 	// H D H  => H
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
@@ -191,9 +191,9 @@ func TestSyncFile7(t *testing.T) {
 func TestSyncFile8(t *testing.T) {
 	// D H D =>
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseData, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutRemote := []FileInterval{}
 	testSyncFile(t, layoutLocal, layoutRemote)
@@ -202,9 +202,9 @@ func TestSyncFile8(t *testing.T) {
 func TestSyncFile9(t *testing.T) {
 	// H D H  =>
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 1 * Blocks}},
-		{SparseData, Interval{1 * Blocks, 2 * Blocks}},
-		{SparseHole, Interval{2 * Blocks, 3 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
 	layoutRemote := []FileInterval{}
 	testSyncFile(t, layoutLocal, layoutRemote)
@@ -212,312 +212,312 @@ func TestSyncFile9(t *testing.T) {
 
 func TestSyncDiff1(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff2(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff3(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff4(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff5(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseHole, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff6(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff7(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff8(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff9(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff10(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseHole, Interval{0, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff11(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff12(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseHole, Interval{0, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff13(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseHole, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff14(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseHole, Interval{0, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff15(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff16(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseHole, Interval{0, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff17(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 28 * Blocks}},
-		{SparseHole, Interval{28 * Blocks, 32 * Blocks}},
-		{SparseData, Interval{32 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 28 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 28 * Blocks, End: 32 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 32 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff18(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 28 * Blocks}},
-		{SparseHole, Interval{28 * Blocks, 36 * Blocks}},
-		{SparseData, Interval{36 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 28 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 28 * Blocks, End: 36 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 36 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff19(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 31 * Blocks}},
-		{SparseHole, Interval{31 * Blocks, 33 * Blocks}},
-		{SparseData, Interval{33 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 31 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 31 * Blocks, End: 33 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 33 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff20(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 32 * Blocks}},
-		{SparseHole, Interval{32 * Blocks, 36 * Blocks}},
-		{SparseData, Interval{36 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 32 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 32 * Blocks, End: 36 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 36 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseData, Interval{0, 30 * Blocks}},
-		{SparseHole, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseData, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff21(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 28 * Blocks}},
-		{SparseData, Interval{28 * Blocks, 32 * Blocks}},
-		{SparseHole, Interval{32 * Blocks, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 28 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 28 * Blocks, End: 32 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 32 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseHole, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff22(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 28 * Blocks}},
-		{SparseData, Interval{28 * Blocks, 36 * Blocks}},
-		{SparseHole, Interval{36 * Blocks, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 28 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 28 * Blocks, End: 36 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 36 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseHole, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff23(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 31 * Blocks}},
-		{SparseData, Interval{31 * Blocks, 33 * Blocks}},
-		{SparseHole, Interval{33 * Blocks, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 31 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 31 * Blocks, End: 33 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 33 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseHole, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncDiff24(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseHole, Interval{0, 32 * Blocks}},
-		{SparseData, Interval{32 * Blocks, 36 * Blocks}},
-		{SparseHole, Interval{36 * Blocks, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 32 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 32 * Blocks, End: 36 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 36 * Blocks, End: 100 * Blocks}},
 	}
 	layoutRemote := []FileInterval{
-		{SparseHole, Interval{0, 30 * Blocks}},
-		{SparseData, Interval{30 * Blocks, 34 * Blocks}},
-		{SparseHole, Interval{34 * Blocks, 100 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 0, End: 30 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 30 * Blocks, End: 34 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 34 * Blocks, End: 100 * Blocks}},
 	}
 	testSyncFile(t, layoutLocal, layoutRemote)
 }
 
 func TestSyncFileHashRetry(t *testing.T) {
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, 1 * Blocks}},
-		{SparseHole, Interval{1 * Blocks, 2 * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: 1 * Blocks}},
+		{Kind: SparseHole, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
 	}
 	layoutRemote := []FileInterval{}
 
@@ -566,7 +566,7 @@ func Test_1G_cleanup(*testing.T) {
 func Benchmark_1G_InitFiles(b *testing.B) {
 	// Setup files
 	layoutLocal := []FileInterval{
-		{SparseData, Interval{0, (256 << 10) * Blocks}},
+		{Kind: SparseData, Interval: Interval{Begin: 0, End: (256 << 10) * Blocks}},
 	}
 	layoutRemote := []FileInterval{}
 

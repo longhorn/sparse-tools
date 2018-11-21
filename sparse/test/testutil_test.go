@@ -119,12 +119,12 @@ func mergeExts(exts []Extent) []Interval {
 		return nil
 	}
 	var merged []Interval
-	previous := Interval{int64(exts[0].Logical), int64(exts[0].Logical + exts[0].Length)}
+	previous := Interval{Begin: int64(exts[0].Logical), End: int64(exts[0].Logical + exts[0].Length)}
 	for i := 1; i < len(exts); i++ {
 		if int64(exts[i].Logical) > previous.End {
 			// current extent is not continuous of previous, so append previous
 			merged = append(merged, previous)
-			previous = Interval{int64(exts[i].Logical), int64(exts[i].Logical + exts[i].Length)}
+			previous = Interval{Begin: int64(exts[i].Logical), End: int64(exts[i].Logical + exts[i].Length)}
 		} else {
 			previous.End += int64(exts[i].Length)
 		}

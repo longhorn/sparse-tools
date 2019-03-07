@@ -8,7 +8,8 @@ import (
 	"testing"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
+
 	. "github.com/rancher/sparse-tools/sparse"
 	"github.com/rancher/sparse-tools/sparse/rest"
 )

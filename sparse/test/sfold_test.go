@@ -4,7 +4,8 @@ import (
 	"os"
 	"testing"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
+
 	. "github.com/rancher/sparse-tools/sparse"
 )
 

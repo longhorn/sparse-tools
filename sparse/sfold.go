@@ -1,7 +1,6 @@
 package sparse
 
 import (
-	"fmt"
 	"os"
 	"syscall"
 
@@ -9,16 +8,11 @@ import (
 )
 
 const (
-	batchBlockCount  = 32
-	progressComplete = 100
+	batchBlockCount = 32
 )
 
-type FoldFileOperations interface {
-	UpdateFoldFileProgress(progress int, done bool, err error)
-}
-
 // FoldFile folds child snapshot data into its parent
-func FoldFile(childFileName, parentFileName string, ops FoldFileOperations) error {
+func FoldFile(childFileName, parentFileName string) error {
 
 	childFInfo, err := os.Stat(childFileName)
 	if err != nil {
@@ -39,23 +33,6 @@ func FoldFile(childFileName, parentFileName string, ops FoldFileOperations) erro
 		panic("file sizes are not equal")
 	}
 
-	go coalesce(parentFileName, childFileName, childFInfo.Size(), ops)
-
-	return nil
-}
-
-func coalesce(parentFileName, childFileName string, fileSize int64, ops FoldFileOperations) (err error) {
-	var progress int
-
-	defer func() {
-		if err != nil {
-			log.Errorf(err.Error())
-			ops.UpdateFoldFileProgress(progress, true, err)
-		} else {
-			ops.UpdateFoldFileProgress(progressComplete, true, nil)
-		}
-	}()
-
 	// open child and parent files
 	childFileIo, err := NewDirectFileIoProcessor(childFileName, os.O_RDONLY, 0)
 	if err != nil {
@@ -69,15 +46,19 @@ func coalesce(parentFileName, childFileName string, fileSize int64, ops FoldFile
 	}
 	defer parentFileIo.Close()
 
+	return coalesce(parentFileIo, childFileIo)
+}
+
+func coalesce(parentFileIo FileIoProcessor, childFileIo FileIoProcessor) error {
 	blockSize, err := getFileSystemBlockSize(childFileIo)
 	if err != nil {
 		panic("can't get FS block size, error: " + err.Error())
 	}
 	exts, err := GetFiemapExtents(childFileIo)
 	if err != nil {
-		return fmt.Errorf("failed to GetFiemapExtents of childFile filename: %s, err: %v", childFileIo.Name(), err)
+		log.Errorf("Failed to GetFiemapExtents of childFile filename: %s, err: %v", childFileIo.Name(), err)
+		return err
 	}
-
 	for _, e := range exts {
 		dataBegin := int64(e.Logical)
 		dataEnd := int64(e.Logical + e.Length)
@@ -87,31 +68,30 @@ func coalesce(parentFileName, childFileName string, fileSize int64, ops FoldFile
 		// 32 blocks in a batch
 		_, err = parentFileIo.Seek(dataBegin, os.SEEK_SET)
 		if err != nil {
-			return fmt.Errorf("Failed to os.Seek os.SEEK_SET parentFile filename: %v, at: %v", parentFileIo.Name(), dataBegin)
+			log.Errorf("Failed to os.Seek os.SEEK_SET parentFile filename: %v, at: %v", parentFileIo.Name(), dataBegin)
+			return err
 		}
 
 		batch := batchBlockCount * blockSize
 		buffer := AllocateAligned(batch)
 		for offset := dataBegin; offset < dataEnd; {
-			var n int
-
 			size := batch
 			if offset+int64(size) > dataEnd {
 				size = int(dataEnd - offset)
 			}
 			// read a batch from child
-			n, err = childFileIo.ReadAt(buffer[:size], offset)
+			n, err := childFileIo.ReadAt(buffer[:size], offset)
 			if err != nil {
-				return fmt.Errorf("Failed to read childFile filename: %v, size: %v, at: %v", childFileIo.Name(), size, offset)
+				log.Errorf("Failed to read childFile filename: %v, size: %v, at: %v", childFileIo.Name(), size, offset)
+				return err
 			}
 			// write a batch to parent
 			n, err = parentFileIo.WriteAt(buffer[:size], offset)
 			if err != nil {
-				return fmt.Errorf("Failed to write to parentFile filename: %v, size: %v, at: %v", parentFileIo.Name(), size, offset)
+				log.Errorf("Failed to write to parentFile filename: %v, size: %v, at: %v", parentFileIo.Name(), size, offset)
+				return err
 			}
 			offset += int64(n)
-			progress = int(float64(offset) / float64(fileSize) * 100)
-			ops.UpdateFoldFileProgress(progress, false, nil)
 		}
 	}
 

@@ -19,36 +19,35 @@ type FoldFileOperations interface {
 
 // FoldFile folds child snapshot data into its parent
 func FoldFile(childFileName, parentFileName string, ops FoldFileOperations) error {
-
 	childFInfo, err := os.Stat(childFileName)
 	if err != nil {
-		panic("os.Stat(childFileName) failed, error: " + err.Error())
+		return fmt.Errorf("os.Stat(childFileName) failed, error: %v", err)
 	}
 	parentFInfo, err := os.Stat(parentFileName)
 	if err != nil {
-		panic("os.Stat(parentFileName) failed, error: " + err.Error())
+		return fmt.Errorf("os.Stat(parentFileName) failed, error: %v", err)
 	}
 
 	// ensure no directory
 	if childFInfo.IsDir() || parentFInfo.IsDir() {
-		panic("at least one file is directory, not a normal file")
+		return fmt.Errorf("at least one file is directory, not a normal file")
 	}
 
 	// ensure file sizes are equal
 	if childFInfo.Size() != parentFInfo.Size() {
-		panic("file sizes are not equal")
+		return fmt.Errorf("file sizes are not equal")
 	}
 
 	// open child and parent files
 	childFileIo, err := NewDirectFileIoProcessor(childFileName, os.O_RDONLY, 0)
 	if err != nil {
-		panic("Failed to open childFile, error: " + err.Error())
+		return fmt.Errorf("failed to open childFile, error: %v", err)
 	}
 	defer childFileIo.Close()
 
 	parentFileIo, err := NewDirectFileIoProcessor(parentFileName, os.O_WRONLY, 0)
 	if err != nil {
-		panic("Failed to open parentFile, error: " + err.Error())
+		return fmt.Errorf("failed to open parentFile, error: %v", err)
 	}
 	defer parentFileIo.Close()
 
@@ -69,7 +68,7 @@ func coalesce(parentFileIo, childFileIo FileIoProcessor, fileSize int64, ops Fol
 
 	blockSize, err := getFileSystemBlockSize(childFileIo)
 	if err != nil {
-		panic("can't get FS block size, error: " + err.Error())
+		return fmt.Errorf("can't get FS block size, error: %v", err)
 	}
 	exts, err := GetFiemapExtents(childFileIo)
 	if err != nil {

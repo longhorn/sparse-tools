@@ -10,6 +10,16 @@ import (
 	"github.com/longhorn/sparse-tools/sparse"
 )
 
+type FoldFileCLI struct {
+	doneChan chan error
+}
+
+func (f *FoldFileCLI) UpdateFoldFileProgress(progress int, done bool, err error) {
+	if done {
+		f.doneChan <- err
+	}
+}
+
 func Main() {
 	defaultNonVerboseLogLevel := log.DebugLevel // set if -verbose is false
 	// Command line parsing
@@ -45,8 +55,15 @@ Examples:
 		log.SetLevel(defaultNonVerboseLogLevel)
 	}
 
-	err := sparse.FoldFile(srcPath, dstPath)
+	ops := &FoldFileCLI{
+		doneChan: make(chan error),
+	}
+	err := sparse.FoldFile(srcPath, dstPath, ops)
 	if err != nil {
+		log.Errorf("error starting to fold file: %s to: %s, err:%v", srcPath, dstPath, err)
+		os.Exit(1)
+	}
+	if err := <-ops.doneChan; err != nil {
 		log.Errorf("failed to fold file: %s to: %s, err: %v", srcPath, dstPath, err)
 		os.Exit(1)
 	}

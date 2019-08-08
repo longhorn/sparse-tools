@@ -9,22 +9,6 @@ import (
 	. "github.com/longhorn/sparse-tools/sparse"
 )
 
-type FoldFileTest struct {
-	doneChan    chan error
-	progress    int
-	progressErr bool
-}
-
-func (f *FoldFileTest) UpdateFoldFileProgress(progress int, done bool, err error) {
-	if progress < f.progress {
-		f.progressErr = true
-	}
-	f.progress = progress
-	if done {
-		f.doneChan <- err
-	}
-}
-
 func TestFoldFile1(t *testing.T) {
 	// D H D => D D H
 	layoutFrom := []FileInterval{
@@ -174,24 +158,11 @@ func testFoldFile(t *testing.T, layoutFrom, layoutTo []FileInterval) (hashLocal 
 	foldLayout(layoutFrom, layoutTo, fromPath, toPath, expectedPath)
 
 	// Fold
-	ops := &FoldFileTest{
-		doneChan: make(chan error),
-	}
-	err := FoldFile(fromPath, toPath, ops)
+	err := FoldFile(fromPath, toPath)
+
+	// Verify
 	if err != nil {
-		t.Fatal("Start fold error:", err)
-	}
-
-	if err := <-ops.doneChan; err != nil {
 		t.Fatal("Fold error:", err)
-	}
-
-	if ops.progress != 100 {
-		t.Fatal("Completed fold does not have progress of 100")
-	}
-
-	if ops.progressErr {
-		t.Fatal("Progress went backwards during fold")
 	}
 
 	err = checkSparseFiles(toPath, expectedPath)

@@ -48,6 +48,49 @@ func (server *SyncServer) getQueryInterval(request *http.Request) (sparse.Interv
 	return sparse.Interval{Begin: begin, End: end}, err
 }
 
+func (server *SyncServer) encodeToFile(request *http.Request) error {
+	data, err := ioutil.ReadAll(request.Body)
+	if err != nil {
+		return fmt.Errorf("Failed to read request, err: %v", err)
+	}
+
+	f, err := os.Create(server.filePath + ".tmp")
+	if err != nil {
+		log.Errorf("failed to create temp file: %s while encoding the data to file", server.filePath)
+		return err
+	}
+	defer f.Close()
+
+	var jsonData map[string]interface{}
+	if err := json.Unmarshal(data, &jsonData); err != nil {
+		log.Errorf("failed to unmarshal the data: %v to json: %v", string(data), jsonData)
+		return err
+	}
+
+	if err := json.NewEncoder(f).Encode(&jsonData); err != nil {
+		log.Errorf("failed to encode the data: %v to file: %s", string(data), f.Name())
+		return err
+	}
+
+	if err := f.Close(); err != nil {
+		log.Errorf("failed to close file after encoding to file: %s", f.Name())
+		return err
+	}
+
+	return os.Rename(server.filePath+".tmp", server.filePath)
+}
+
+func (server *SyncServer) writeMetaFile(writer http.ResponseWriter, request *http.Request) {
+	err := server.encodeToFile(request)
+	if err != nil {
+		log.Errorf("encode to file failed, err: %s", err)
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	log.Debugf("Written to metafile successfully")
+	writer.WriteHeader(http.StatusOK)
+}
+
 func (server *SyncServer) open(writer http.ResponseWriter, request *http.Request) {
 	err := server.doOpen(request)
 	if err != nil {
@@ -95,7 +138,9 @@ func (server *SyncServer) close(writer http.ResponseWriter, request *http.Reques
 		f.Flush()
 	}
 
-	server.fileIo.Close()
+	if server.fileIo != nil {
+		server.fileIo.Close()
+	}
 	log.Infof("Closing ssync server")
 
 	server.srv.Close()

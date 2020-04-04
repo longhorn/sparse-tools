@@ -14,6 +14,6 @@ func NewRouter(server *SyncServer) *mux.Router {
 	router.HandleFunc("/v1-ssync/close", server.close).Methods("POST")
 	router.HandleFunc("/v1-ssync/sendHole", server.sendHole).Methods("POST")
 	router.HandleFunc("/v1-ssync/writeData", server.writeData).Methods("POST")
-
+	router.HandleFunc("/v1-ssync/writeMetaData", server.writeMetaFile).Methods("POST")
 	return router
 }

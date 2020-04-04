@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -27,6 +28,16 @@ type syncClient struct {
 }
 
 const connectionRetries = 5
+
+func unmarshalFile(file string, obj interface{}) error {
+	f, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	return json.NewDecoder(f).Decode(obj)
+}
 
 // SyncFile synchronizes local file to remote host
 func SyncFile(localPath string, remote string, timeout int) error {
@@ -54,8 +65,17 @@ func SyncFile(localPath string, remote string, timeout int) error {
 	client := &syncClient{remote, timeout, localPath, fileSize, fileIo}
 
 	defer client.closeServer() // kill the server no matter success or not, best effort
-
-	err = client.syncFileContent(fileIo, fileSize)
+	if strings.HasSuffix(localPath, ".meta") {
+		data := make(map[string]interface{})
+		err = unmarshalFile(localPath, &data)
+		if err != nil {
+			log.Errorf("Failed to unmarshal meta data from file, err: %v", err)
+			return err
+		}
+		err = client.sendMetaData(data)
+	} else {
+		err = client.syncFileContent(fileIo, fileSize)
+	}
 	if err != nil {
 		log.Errorf("syncFileContent failed: %s", err)
 		return err
@@ -155,6 +175,32 @@ func (client *syncClient) sendHTTPRequest(method string, action string, interval
 	return httpClient.Do(req)
 }
 
+func (client *syncClient) sendRequest(action string, data interface{}) error {
+	httpClient := &http.Client{Timeout: time.Duration(httpClientTimeout * time.Second)}
+
+	b, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+
+	bodyType := "application/json"
+	url := fmt.Sprintf("http://%s/v1-ssync/%s", client.remote, action)
+
+	log.Debugf("POST %s, data: %v", url, string(b))
+
+	httpResp, err := httpClient.Post(url, bodyType, bytes.NewBuffer(b))
+	if err != nil {
+		return err
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode >= 300 {
+		content, _ := ioutil.ReadAll(httpResp.Body)
+		return fmt.Errorf("Bad response: %d %s: %s", httpResp.StatusCode, httpResp.Status, content)
+	}
+	return nil
+}
+
 func (client *syncClient) openServer() error {
 	var err error
 	var resp *http.Response
@@ -180,6 +226,30 @@ func (client *syncClient) openServer() error {
 		return fmt.Errorf("resp.StatusCode(%d) != http.StatusOK", resp.StatusCode)
 	}
 	resp.Body.Close()
+
+	return nil
+}
+
+func (client *syncClient) sendMetaData(data interface{}) error {
+	var err error
+
+	timeStart := time.Now()
+	timeStop := timeStart.Add(time.Duration(client.timeout) * time.Second)
+	for timeNow := timeStart; timeNow.Before(timeStop); timeNow = time.Now() {
+		err = client.sendRequest("writeMetaData", data)
+		if err == nil {
+			break
+		}
+		log.Warnf("Failed to send request to %s, Retrying...", client.remote)
+		if timeNow != timeStart {
+			// only sleep after the second attempt to speedup tests
+			time.Sleep(1 * time.Second)
+		}
+	}
+
+	if err != nil {
+		return fmt.Errorf("send failed, err: %s", err)
+	}
 
 	return nil
 }

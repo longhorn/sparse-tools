@@ -22,7 +22,7 @@ func TestSyncSmallFile1(t *testing.T) {
 
 	data := []byte("json-fault")
 	createTestSmallFile(localPath, len(data), data)
-	testSyncAnyFile(t, localPath, remotePath)
+	testSyncAnyFile(t, localPath, remotePath, false /* directIO */)
 }
 
 func TestSyncSmallFile2(t *testing.T) {
@@ -36,7 +36,7 @@ func TestSyncSmallFile2(t *testing.T) {
 	data1 := []byte("json")
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data1), data1)
-	testSyncAnyFile(t, localPath, remotePath)
+	testSyncAnyFile(t, localPath, remotePath, false /* directIO */)
 }
 
 func TestSyncSmallFile3(t *testing.T) {
@@ -49,7 +49,7 @@ func TestSyncSmallFile3(t *testing.T) {
 	data := []byte("json-fault")
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data), data)
-	testSyncAnyFile(t, localPath, remotePath)
+	testSyncAnyFile(t, localPath, remotePath, false /* directIO */)
 }
 
 func TestSyncSmallFile4(t *testing.T) {
@@ -62,7 +62,7 @@ func TestSyncSmallFile4(t *testing.T) {
 	data := []byte("json-fault")
 	createTestSmallFile(localPath, 0, make([]byte, 0))
 	createTestSmallFile(remotePath, len(data), data)
-	testSyncAnyFile(t, localPath, remotePath)
+	testSyncAnyFile(t, localPath, remotePath, false /* directIO */)
 }
 
 func TestSyncAnyFile(t *testing.T) {
@@ -72,14 +72,14 @@ func TestSyncAnyFile(t *testing.T) {
 	// ad hoc test for testing specific problematic files
 	// disabled by default
 	if run {
-		testSyncAnyFile(t, src, dst)
+		testSyncAnyFile(t, src, dst, false /* directIO */)
 	}
 }
 
-func testSyncAnyFile(t *testing.T, src, dst string) {
+func testSyncAnyFile(t *testing.T, src, dst string, directIO bool) {
 	// Sync
 	go rest.TestServer(port, dst, timeout)
-	err := SyncFile(src, localhost+":"+port, timeout)
+	err := SyncFile(src, localhost+":"+port, timeout, directIO)
 
 	// Verify
 	if err != nil {
@@ -542,7 +542,7 @@ func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval) (hashL
 
 	// Sync
 	go rest.TestServer(port, remotePath, timeout)
-	err := SyncFile(localPath, localhost+":"+port, timeout)
+	err := SyncFile(localPath, localhost+":"+port, timeout, false /* directIO */)
 
 	// Verify
 	if err != nil {
@@ -577,7 +577,7 @@ func Benchmark_1G_InitFiles(b *testing.B) {
 
 func Benchmark_1G_SendFiles_Whole(b *testing.B) {
 	go rest.TestServer(port, remoteBigPath, timeout)
-	err := SyncFile(localBigPath, localhost+":"+port, timeout)
+	err := SyncFile(localBigPath, localhost+":"+port, timeout, false /* directIO */)
 
 	if err != nil {
 		b.Fatal("sync error")
@@ -587,7 +587,7 @@ func Benchmark_1G_SendFiles_Whole(b *testing.B) {
 func Benchmark_1G_SendFiles_Diff(b *testing.B) {
 
 	go rest.TestServer(port, remoteBigPath, timeout)
-	err := SyncFile(localBigPath, localhost+":"+port, timeout)
+	err := SyncFile(localBigPath, localhost+":"+port, timeout, false /* directIO */)
 
 	if err != nil {
 		b.Fatal("sync error")

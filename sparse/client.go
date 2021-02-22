@@ -30,14 +30,13 @@ type syncClient struct {
 const connectionRetries = 5
 
 // SyncFile synchronizes local file to remote host
-func SyncFile(localPath string, remote string, timeout int) error {
+func SyncFile(localPath string, remote string, timeout int, directIO bool) error {
 	fileInfo, err := os.Stat(localPath)
 	if err != nil {
 		log.Errorf("Failed to get size of source file: %s, err: %s", localPath, err)
 		return err
 	}
 	fileSize := fileInfo.Size()
-	directIO := (fileSize%Blocks == 0)
 	log.Infof("source file size: %d, setting up directIo: %v", fileSize, directIO)
 
 	var fileIo FileIoProcessor

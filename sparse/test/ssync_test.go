@@ -22,7 +22,15 @@ func TestRandomSync100MB(t *testing.T) {
 	const size = 100 /*MB*/ << 20
 	srcName := tempFilePath(srcPrefix)
 	dstName := tempFilePath(dstPrefix)
-	RandomSync(t, size, seed, srcName, dstName, true /*create dstFile*/)
+	RandomSync(t, size, seed, srcName, dstName, true /*create dstFile*/, true /* directIO */)
+}
+
+func TestRandomSync100MBNoDirectIO(t *testing.T) {
+	const seed = 1
+	const size = 100 /*MB*/ << 20
+	srcName := tempFilePath(srcPrefix)
+	dstName := tempFilePath(dstPrefix)
+	RandomSync(t, size, seed, srcName, dstName, true /*create dstFile*/, false /* directIO */)
 }
 
 func TestRandomSyncNoDst100MB(t *testing.T) {
@@ -30,7 +38,15 @@ func TestRandomSyncNoDst100MB(t *testing.T) {
 	const size = 100 /*MB*/ << 20
 	srcName := tempFilePath(srcPrefix)
 	dstName := tempFilePath(dstPrefix)
-	RandomSync(t, size, seed, srcName, dstName, false /*no dstFile*/)
+	RandomSync(t, size, seed, srcName, dstName, false /*no dstFile*/, true /* directIO */)
+}
+
+func TestRandomSyncNoDst100MBNoDirectIO(t *testing.T) {
+	const seed = 2
+	const size = 100 /*MB*/ << 20
+	srcName := tempFilePath(srcPrefix)
+	dstName := tempFilePath(dstPrefix)
+	RandomSync(t, size, seed, srcName, dstName, false /*no dstFile*/, false /* directIO */)
 }
 
 func TestRandomSyncCustomGB(t *testing.T) {
@@ -54,17 +70,47 @@ func TestRandomSyncCustomGB(t *testing.T) {
 		log.Info("")
 		srcName := tempFilePath(srcPrefix)
 		dstName := tempFilePath(dstPrefix)
-		RandomSync(t, size, seed, srcName, dstName, true /*create dstFile*/)
+		RandomSync(t, size, seed, srcName, dstName, true /*create dstFile*/, true /* directIO */)
 	} else {
 		log.Info("Using ", sizeGB, "(GB) size for random seed test")
 		size = int64(sizeGB) << 30
 		srcName := tempBigFilePath(srcPrefix)
 		dstName := tempBigFilePath(dstPrefix)
-		RandomSync(t, size, seed, srcName, dstName, true /*create dstFile*/)
+		RandomSync(t, size, seed, srcName, dstName, true /*create dstFile*/, true /* directIO */)
+	}
+}
+func TestRandomSyncCustomGBNoDirectIO(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipped custom random sync")
+	}
+
+	// random seed
+	seed := time.Now().UnixNano()
+	log.Info("seed=", seed)
+
+	// default size
+	var size = int64(100) /*MB*/ << 20
+	arg := os.Args[len(os.Args)-1]
+	sizeGB, err := strconv.Atoi(arg)
+	if err != nil {
+		log.Info("")
+		log.Info("Using default 100MB size for random seed test")
+		log.Info("For alternative size in GB and in current dir(vs tmp) use -timeout 10m -args <GB>")
+		log.Info("Increase the optional -timeout value for 20GB and larger sizes")
+		log.Info("")
+		srcName := tempFilePath(srcPrefix)
+		dstName := tempFilePath(dstPrefix)
+		RandomSync(t, size, seed, srcName, dstName, true /*create dstFile*/, false /* directIO */)
+	} else {
+		log.Info("Using ", sizeGB, "(GB) size for random seed test")
+		size = int64(sizeGB) << 30
+		srcName := tempBigFilePath(srcPrefix)
+		dstName := tempBigFilePath(dstPrefix)
+		RandomSync(t, size, seed, srcName, dstName, true /*create dstFile*/, false /* directIO */)
 	}
 }
 
-func RandomSync(t *testing.T, size, seed int64, srcPath, dstPath string, dstCreate bool) {
+func RandomSync(t *testing.T, size, seed int64, srcPath, dstPath string, dstCreate bool, directIO bool) {
 	const (
 		localhost = "127.0.0.1"
 		timeout   = 10 //seconds
@@ -85,7 +131,7 @@ func RandomSync(t *testing.T, size, seed int64, srcPath, dstPath string, dstCrea
 	log.Info("Syncing...")
 
 	go rest.TestServer(port, dstPath, timeout)
-	err := SyncFile(srcPath, localhost+":"+port, timeout)
+	err := SyncFile(srcPath, localhost+":"+port, timeout, directIO)
 
 	if err != nil {
 		t.Fatal("sync error")

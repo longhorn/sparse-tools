@@ -38,6 +38,8 @@ func SyncFile(localPath string, remote string, timeout int, directIO bool) error
 	}
 	fileSize := fileInfo.Size()
 	log.Infof("source file size: %d, setting up directIo: %v", fileSize, directIO)
+	startTime := time.Now()
+	log.Infof("Start sending file %s", localPath)
 
 	var fileIo FileIoProcessor
 	if directIO {
@@ -56,6 +58,7 @@ func SyncFile(localPath string, remote string, timeout int, directIO bool) error
 	defer client.closeServer() // kill the server no matter success or not, best effort
 
 	err = client.syncFileContent(fileIo, fileSize)
+	log.Infof("Finish sending file %s and take %v", localPath, time.Since(startTime))
 	if err != nil {
 		log.Errorf("syncFileContent failed: %s", err)
 		return err

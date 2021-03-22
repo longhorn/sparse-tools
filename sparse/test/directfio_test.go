@@ -16,7 +16,7 @@ import (
 
 func tempFilePathDirectIo() string {
 	// Make a temporary file path
-	f, err := ioutil.TempFile("", "directIo-test")
+	f, err := ioutil.TempFile("", "directIO-test")
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}
@@ -28,7 +28,7 @@ func tempFilePathDirectIo() string {
 // created in current directory
 func tempBigFilePathDirectIo() string {
 	// Make a temporary file path in current dir
-	f, err := ioutil.TempFile(".", "directIo-test")
+	f, err := ioutil.TempFile(".", "directIO-test")
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}

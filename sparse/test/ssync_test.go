@@ -177,7 +177,7 @@ func RandomSync(t *testing.T, size, seed int64, srcPath, dstPath string, dstCrea
 	}
 }
 
-// genereate random hole and data interval, but just return data interval slcie
+// generate random hole and data interval, but just return data interval slcie
 func generateRandomDataLayout(prefix string, size, seed int64) []Interval {
 	const maxInterval = 256 // number of blocks
 	var layout []Interval

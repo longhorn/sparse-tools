@@ -718,7 +718,7 @@ func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval, direct
 	// Create test files
 	createTestSparseFile(localPath, layoutLocal)
 	if len(layoutRemote) > 0 {
-		// only create destination test file if layout is speciifed
+		// only create destination test file if layout is specified
 		createTestSparseFile(remotePath, layoutRemote)
 	}
 

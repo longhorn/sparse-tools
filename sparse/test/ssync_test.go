@@ -166,8 +166,7 @@ func RandomSync(t *testing.T, size, seed int64, srcPath, dstPath string, dstCrea
 
 	log.Infof("Syncing with directIO: %v", directIO)
 
-	ctx, cancelFunc := context.WithCancel(context.Background())
-	go rest.TestServer(ctx, cancelFunc, port, dstPath, timeout)
+	go rest.TestServer(context.Background(), port, dstPath, timeout)
 	err := SyncFile(srcPath, localhost+":"+port, timeout, directIO)
 
 	if err != nil {
@@ -229,7 +228,7 @@ func TestSyncCancellation(t *testing.T) {
 	dstName := tempFilePath(dstPrefix)
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
-	go rest.TestServer(ctx, cancelFunc, port, dstName, timeout)
+	go rest.TestServer(ctx, port, dstName, timeout)
 
 	client := http.Client{}
 
@@ -243,7 +242,7 @@ func TestSyncCancellation(t *testing.T) {
 		}
 		resp1, err := client.Do(req1)
 		httpErr = err
-		if err == nil {
+		if httpErr == nil {
 			resp1.Body.Close()
 			break
 		}
@@ -255,16 +254,22 @@ func TestSyncCancellation(t *testing.T) {
 
 	cancelFunc()
 
-	// Once the server is closed by the canncel function, each request should fail.
 	for i := 0; i < retryCount; i++ {
 		req2, err := http.NewRequest("GET", "http://"+localhost+":"+port, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := client.Do(req2); err == nil || !strings.Contains(err.Error(), "connection refused") {
-			t.Fatalf("Unexpected error: %v", err)
+		resp2, err := client.Do(req2)
+		httpErr = err
+		if httpErr == nil {
+			resp2.Body.Close()
+		}
+		if httpErr != nil && strings.Contains(httpErr.Error(), "connection refused") {
+			break
 		}
 		time.Sleep(retryInterval)
 	}
-
+	if httpErr == nil || !strings.Contains(httpErr.Error(), "connection refused") {
+		t.Fatalf("Unexpected error: %v", httpErr)
+	}
 }

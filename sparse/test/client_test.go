@@ -247,8 +247,7 @@ func TestSyncAnyFile(t *testing.T) {
 
 func testSyncAnyFile(t *testing.T, src, dst string, directIO bool) {
 	// Sync
-	ctx, cancelFunc := context.WithCancel(context.Background())
-	go rest.TestServer(ctx, cancelFunc, port, dst, timeout)
+	go rest.TestServer(context.Background(), port, dst, timeout)
 	err := SyncFile(src, localhost+":"+port, timeout, directIO)
 
 	// Verify
@@ -266,8 +265,7 @@ func testSyncAnyFile(t *testing.T, src, dst string, directIO bool) {
 
 func testSyncAnyFileExpectFailure(t *testing.T, src, dst string, directIO bool) {
 	// Sync
-	ctx, cancelFunc := context.WithCancel(context.Background())
-	go rest.TestServer(ctx, cancelFunc, port, dst, timeout)
+	go rest.TestServer(context.Background(), port, dst, timeout)
 	err := SyncFile(src, localhost+":"+port, timeout, directIO)
 
 	// Verify
@@ -726,8 +724,7 @@ func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval, direct
 	}
 
 	// Sync
-	ctx, cancelFunc := context.WithCancel(context.Background())
-	go rest.TestServer(ctx, cancelFunc, port, remotePath, timeout)
+	go rest.TestServer(context.Background(), port, remotePath, timeout)
 	err := SyncFile(localPath, localhost+":"+port, timeout, true /* directIO */)
 
 	// Verify
@@ -766,8 +763,7 @@ func Benchmark_1G_InitFiles(b *testing.B) {
 }
 
 func Benchmark_1G_SendFiles_Whole(b *testing.B) {
-	ctx, cancelFunc := context.WithCancel(context.Background())
-	go rest.TestServer(ctx, cancelFunc, port, remoteBigPath, timeout)
+	go rest.TestServer(context.Background(), port, remoteBigPath, timeout)
 	err := SyncFile(localBigPath, localhost+":"+port, timeout, true /* directIO */)
 
 	if err != nil {
@@ -776,8 +772,7 @@ func Benchmark_1G_SendFiles_Whole(b *testing.B) {
 }
 
 func Benchmark_1G_SendFiles_Whole_No_DirectIO(b *testing.B) {
-	ctx, cancelFunc := context.WithCancel(context.Background())
-	go rest.TestServer(ctx, cancelFunc, port, remoteBigPath, timeout)
+	go rest.TestServer(context.Background(), port, remoteBigPath, timeout)
 	err := SyncFile(localBigPath, localhost+":"+port, timeout, false /* directIO */)
 
 	if err != nil {
@@ -787,8 +782,7 @@ func Benchmark_1G_SendFiles_Whole_No_DirectIO(b *testing.B) {
 
 func Benchmark_1G_SendFiles_Diff(b *testing.B) {
 
-	ctx, cancelFunc := context.WithCancel(context.Background())
-	go rest.TestServer(ctx, cancelFunc, port, remoteBigPath, timeout)
+	go rest.TestServer(context.Background(), port, remoteBigPath, timeout)
 	err := SyncFile(localBigPath, localhost+":"+port, timeout, true /* directIO */)
 
 	if err != nil {

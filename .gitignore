@@ -11,3 +11,5 @@ debug.test
 #go build binaries
 ssync/ssync
 sfold/sfold
+
+/.idea

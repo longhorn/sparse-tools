@@ -2,6 +2,7 @@ package test
 
 import (
 	"os"
+	"sync"
 	"testing"
 
 	log "github.com/sirupsen/logrus"
@@ -12,9 +13,15 @@ import (
 type FoldFileTest struct {
 	progress    int
 	progressErr bool
+	sync.Mutex
 }
 
+// UpdateFoldFileProgress can be called by multiple go routines, so you need to guard the inner progress variable
+// one can use a lock or a cmp&swp approach both would ensure consistent read/writes to the var
+// at the moment the real Update function uses a lock, so we use a lock in the test function as well.
 func (f *FoldFileTest) UpdateFoldFileProgress(progress int, done bool, err error) {
+	f.Lock()
+	defer f.Unlock()
 	if progress < f.progress {
 		f.progressErr = true
 	}
@@ -108,6 +115,21 @@ func TestFoldFile6(t *testing.T) {
 		{Kind: SparseData, Interval: Interval{Begin: 1 * Blocks, End: 2 * Blocks}},
 		{Kind: SparseData, Interval: Interval{Begin: 2 * Blocks, End: 3 * Blocks}},
 	}
+	testFoldFile(t, layoutFrom, layoutTo)
+}
+
+func TestFoldFile100MB(t *testing.T) {
+	const MB = 1024 * 1024
+	const FileSize = 100 * MB
+	layoutFrom, layoutTo := createTestFoldIntervals(FileSize)
+	testFoldFile(t, layoutFrom, layoutTo)
+}
+
+func TestFoldFile1GB(t *testing.T) {
+	t.Skip("skipped sfold_test::TestFoldFile1GB")
+	const GB = 1024 * 1024 * 1024
+	const FileSize = 1 * GB
+	layoutFrom, layoutTo := createTestFoldIntervals(FileSize)
 	testFoldFile(t, layoutFrom, layoutTo)
 }
 

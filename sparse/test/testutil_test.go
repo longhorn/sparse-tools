@@ -206,3 +206,21 @@ func createTestSmallFile(name string, size int, pattern []byte) {
 
 	f.Sync()
 }
+
+func createTestFoldIntervals(fileSize int) (layoutFrom, layoutTo []FileInterval) {
+	blockCount := int64(fileSize) / Blocks
+	for i := int64(0); i < blockCount; i++ {
+		interval := Interval{Begin: i * Blocks, End: (i + 1) * Blocks}
+		layoutFrom = append(layoutFrom, FileInterval{
+			Kind:     FileIntervalKind(1 + (i % 2)),
+			Interval: interval,
+		})
+
+		layoutTo = append(layoutTo, FileInterval{
+			Kind:     FileIntervalKind(1 + ((i + 1) % 2)),
+			Interval: interval,
+		})
+	}
+
+	return layoutFrom, layoutTo
+}

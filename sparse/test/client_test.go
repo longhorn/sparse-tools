@@ -2,6 +2,8 @@ package test
 
 import (
 	"context"
+	"math/rand"
+	"os"
 	"testing"
 
 	. "github.com/longhorn/sparse-tools/sparse"
@@ -796,4 +798,68 @@ func Benchmark_1G_CheckFiles(b *testing.B) {
 		return
 	}
 	filesCleanup(localBigPath, remoteBigPath)
+}
+
+func TestSyncSmallSnapshot4MB(t *testing.T) {
+	// use the file at localPath to represent the source snapshot
+	localPath := tempFilePath("ssync-small-src-")
+	remotePath := tempFilePath("ssync-small-dst-")
+
+	filesCleanup(localPath, remotePath)
+	defer filesCleanup(localPath, remotePath)
+
+	size := 4*1024*1024
+	data := make([]byte, size)
+	rand.Read(data)
+
+	createTestSmallFile(localPath, len(data), data)
+
+	fileIo, err := NewDirectFileIoProcessor(localPath, os.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fileIo.Close()
+
+	testSyncAnyContent(t, localPath, remotePath, fileIo, int64(size))
+}
+
+func TestSyncSnapshotZeroByte(t *testing.T) {
+	// use the file at localPath to represent the source snapshot
+	localPath := tempFilePath("ssync-small-src-")
+	remotePath := tempFilePath("ssync-small-dst-")
+
+	filesCleanup(localPath, remotePath)
+	defer filesCleanup(localPath, remotePath)
+
+	size := 0
+	data := make([]byte, size)
+
+	createTestSmallFile(localPath, len(data), data)
+
+	fileIo, err := NewDirectFileIoProcessor(localPath, os.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fileIo.Close()
+
+	testSyncAnyContent(t, localPath, remotePath, fileIo, int64(size))
+}
+
+
+func testSyncAnyContent(t *testing.T, snapshotName string, dstFileName string, rw ReaderWriterAt, snapshotSize int64) {
+	// Sync
+	go rest.TestServer(context.Background(), port, dstFileName, timeout)
+	err := SyncContent(snapshotName,  rw, snapshotSize, localhost+":"+port, timeout, true)
+
+	// Verify
+	if err != nil {
+		t.Fatalf("sync error: %v", err)
+	}
+	if !filesAreEqual(snapshotName, dstFileName) {
+		t.Fatal("file content diverged")
+	}
+	err = checkSparseFiles(snapshotName, dstFileName)
+	if err != nil {
+		t.Fatal(err)
+	}
 }

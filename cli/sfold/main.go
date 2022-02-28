@@ -10,9 +10,9 @@ import (
 	"github.com/longhorn/sparse-tools/sparse"
 )
 
-type FoldFileStub struct{}
+type FileHandlingStub struct{}
 
-func (f *FoldFileStub) UpdateFoldFileProgress(progress int, done bool, err error) {}
+func (f *FileHandlingStub) UpdateFileHandlingProgress(progress int, done bool, err error) {}
 
 func Main() {
 	defaultNonVerboseLogLevel := log.DebugLevel // set if -verbose is false
@@ -49,7 +49,7 @@ Examples:
 		log.SetLevel(defaultNonVerboseLogLevel)
 	}
 
-	ops := &FoldFileStub{}
+	ops := &FileHandlingStub{}
 	err := sparse.FoldFile(srcPath, dstPath, ops)
 	if err != nil {
 		log.Errorf("failed to fold file: %s to: %s, err: %v", srcPath, dstPath, err)

@@ -19,7 +19,7 @@ type FoldFileTest struct {
 // UpdateFoldFileProgress can be called by multiple go routines, so you need to guard the inner progress variable
 // one can use a lock or a cmp&swp approach both would ensure consistent read/writes to the var
 // at the moment the real Update function uses a lock, so we use a lock in the test function as well.
-func (f *FoldFileTest) UpdateFoldFileProgress(progress int, done bool, err error) {
+func (f *FoldFileTest) UpdateFileHandlingProgress(progress int, done bool, err error) {
 	f.Lock()
 	defer f.Unlock()
 	if progress < f.progress {
@@ -119,17 +119,15 @@ func TestFoldFile6(t *testing.T) {
 }
 
 func TestFoldFile100MB(t *testing.T) {
-	const MB = 1024 * 1024
 	const FileSize = 100 * MB
-	layoutFrom, layoutTo := createTestFoldIntervals(FileSize)
+	layoutFrom, layoutTo := createNonOverlappingTestIntervals(FileSize)
 	testFoldFile(t, layoutFrom, layoutTo)
 }
 
 func TestFoldFile1GB(t *testing.T) {
 	t.Skip("skipped sfold_test::TestFoldFile1GB")
-	const GB = 1024 * 1024 * 1024
 	const FileSize = 1 * GB
-	layoutFrom, layoutTo := createTestFoldIntervals(FileSize)
+	layoutFrom, layoutTo := createNonOverlappingTestIntervals(FileSize)
 	testFoldFile(t, layoutFrom, layoutTo)
 }
 

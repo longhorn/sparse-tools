@@ -3,7 +3,24 @@ package sparse
 import (
 	"context"
 	"sync"
+	"syscall"
 )
+
+const (
+	batchBlockCount  = 32
+	progressComplete = uint32(100)
+)
+
+type FileHandlingOperations interface {
+	UpdateFileHandlingProgress(progress int, done bool, err error)
+}
+
+// get the file system block size
+func getFileSystemBlockSize(fileIo FileIoProcessor) (int, error) {
+	var stat syscall.Stat_t
+	err := syscall.Stat(fileIo.Name(), &stat)
+	return int(stat.Blksize), err
+}
 
 // mergeErrorChannels will merge all error channels into a single error out channel.
 // the error out channel will be closed once the ctx is done or all error channels are closed

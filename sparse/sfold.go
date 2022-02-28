@@ -6,23 +6,13 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	batchBlockCount  = 32
-	progressComplete = uint32(100)
-)
-
-type FoldFileOperations interface {
-	UpdateFoldFileProgress(progress int, done bool, err error)
-}
-
 // FoldFile folds child snapshot data into its parent
-func FoldFile(childFileName, parentFileName string, ops FoldFileOperations) error {
+func FoldFile(childFileName, parentFileName string, ops FileHandlingOperations) error {
 	childFInfo, err := os.Stat(childFileName)
 	if err != nil {
 		return fmt.Errorf("os.Stat(childFileName) failed, error: %v", err)
@@ -37,7 +27,7 @@ func FoldFile(childFileName, parentFileName string, ops FoldFileOperations) erro
 		return fmt.Errorf("at least one file is directory, not a normal file")
 	}
 
-	// may caused by the expansion
+	// may be caused by the expansion
 	if childFInfo.Size() != parentFInfo.Size() {
 		if childFInfo.Size() < parentFInfo.Size() {
 			return fmt.Errorf("file sizes are not equal and the parent file is larger than the child file")
@@ -63,7 +53,7 @@ func FoldFile(childFileName, parentFileName string, ops FoldFileOperations) erro
 	return coalesce(parentFileIo, childFileIo, childFInfo.Size(), ops)
 }
 
-func coalesce(parentFileIo, childFileIo FileIoProcessor, fileSize int64, ops FoldFileOperations) (err error) {
+func coalesce(parentFileIo, childFileIo FileIoProcessor, fileSize int64, ops FileHandlingOperations) (err error) {
 	var progress uint32
 	progressMutex := &sync.Mutex{}
 
@@ -78,11 +68,11 @@ func coalesce(parentFileIo, childFileIo FileIoProcessor, fileSize int64, ops Fol
 
 		// this lock ensures that there is only a single in flight UpdateFoldFileProgress operation
 		// with multiple in flight operations, the lock on the receiver side would be non deterministically
-		// acquired which would potentially lead to non monotonic progress updates.
+		// acquired which would potentially lead to non-monotonic progress updates.
 		progressMutex.Lock()
 		defer progressMutex.Unlock()
 		if forcedUpdate || newProgress > atomic.LoadUint32(&progress) {
-			ops.UpdateFoldFileProgress(int(newProgress), done, err)
+			ops.UpdateFileHandlingProgress(int(newProgress), done, err)
 			atomic.StoreUint32(&progress, newProgress)
 		}
 	}
@@ -125,14 +115,14 @@ func coalesce(parentFileIo, childFileIo FileIoProcessor, fileSize int64, ops Fol
 				// read a batch from child
 				n, err := childFileIo.ReadAt(buffer[:size], offset)
 				if err != nil {
-					return fmt.Errorf("failed to read childFile filename: %v, size: %v, at: %v",
-						childFileIo.Name(), size, offset)
+					return fmt.Errorf("failed to read childFile filename: %v, size: %v, at: %v, error: %v",
+						childFileIo.Name(), size, offset, err)
 				}
 				// write a batch to parent
 				n, err = parentFileIo.WriteAt(buffer[:size], offset)
 				if err != nil {
-					return fmt.Errorf("failed to write to parentFile filename: %v, size: %v, at: %v",
-						parentFileIo.Name(), size, offset)
+					return fmt.Errorf("failed to write to parentFile filename: %v, size: %v, at: %v, error: %v",
+						parentFileIo.Name(), size, offset, err)
 				}
 				offset += int64(n)
 			}
@@ -161,11 +151,4 @@ func coalesce(parentFileIo, childFileIo FileIoProcessor, fileSize int64, ops Fol
 	log.Debugf("finished fold for parent: %v child: %v size: %v elapsed: %.2fs",
 		parentFileIo.Name(), childFileIo.Name(), fileSize, time.Now().Sub(syncStartTime).Seconds())
 	return err
-}
-
-// get the file system block size
-func getFileSystemBlockSize(fileIo FileIoProcessor) (int, error) {
-	var stat syscall.Stat_t
-	err := syscall.Stat(fileIo.Name(), &stat)
-	return int(stat.Blksize), err
 }

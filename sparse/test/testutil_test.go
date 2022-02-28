@@ -14,7 +14,13 @@ import (
 	. "github.com/longhorn/sparse-tools/sparse"
 )
 
-const batch = int64(32) // number of blocks for single read/write
+const (
+	batch = int64(32) // number of blocks for single read/write
+
+	KB = 1024
+	MB = 1024 * KB
+	GB = 1024 * MB
+)
 
 func filesAreEqual(aPath, bPath string) bool {
 	cmd := exec.Command("diff", aPath, bPath)
@@ -207,7 +213,7 @@ func createTestSmallFile(name string, size int, pattern []byte) {
 	f.Sync()
 }
 
-func createTestFoldIntervals(fileSize int) (layoutFrom, layoutTo []FileInterval) {
+func createNonOverlappingTestIntervals(fileSize int) (layoutFrom, layoutTo []FileInterval) {
 	blockCount := int64(fileSize) / Blocks
 	for i := int64(0); i < blockCount; i++ {
 		interval := Interval{Begin: i * Blocks, End: (i + 1) * Blocks}
@@ -218,6 +224,24 @@ func createTestFoldIntervals(fileSize int) (layoutFrom, layoutTo []FileInterval)
 
 		layoutTo = append(layoutTo, FileInterval{
 			Kind:     FileIntervalKind(1 + ((i + 1) % 2)),
+			Interval: interval,
+		})
+	}
+
+	return layoutFrom, layoutTo
+}
+
+func createOverlappingTestIntervals(fileSize int) (layoutFrom, layoutTo []FileInterval) {
+	blockCount := int64(fileSize) / Blocks
+	for i := int64(0); i < blockCount; i++ {
+		interval := Interval{Begin: i * Blocks, End: (i + 1) * Blocks}
+		layoutFrom = append(layoutFrom, FileInterval{
+			Kind:     FileIntervalKind(1 + (i % 2)),
+			Interval: interval,
+		})
+
+		layoutTo = append(layoutTo, FileInterval{
+			Kind:     FileIntervalKind(1 + (i % 2)),
 			Interval: interval,
 		})
 	}

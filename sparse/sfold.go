@@ -54,35 +54,15 @@ func FoldFile(childFileName, parentFileName string, ops FileHandlingOperations) 
 }
 
 func coalesce(parentFileIo, childFileIo FileIoProcessor, fileSize int64, ops FileHandlingOperations) (err error) {
-	var progress uint32
+	progress := new(uint32)
 	progressMutex := &sync.Mutex{}
-
-	// progress updates can only be monotonically increasing, once that's replaced we can use an atomic cmp&swp around progress
-	// that doesn't require locking and we also limit the update function calls to p=[0,100] since there
-	// is no point in calling updates for the same p value multiple times
-	updateProgress := func(newProgress uint32, done bool, err error) {
-		forcedUpdate := done || err != nil
-		if !forcedUpdate && newProgress <= atomic.LoadUint32(&progress) {
-			return
-		}
-
-		// this lock ensures that there is only a single in flight UpdateFoldFileProgress operation
-		// with multiple in flight operations, the lock on the receiver side would be non deterministically
-		// acquired which would potentially lead to non-monotonic progress updates.
-		progressMutex.Lock()
-		defer progressMutex.Unlock()
-		if forcedUpdate || newProgress > atomic.LoadUint32(&progress) {
-			ops.UpdateFileHandlingProgress(int(newProgress), done, err)
-			atomic.StoreUint32(&progress, newProgress)
-		}
-	}
 
 	defer func() {
 		if err != nil {
 			log.Errorf(err.Error())
-			updateProgress(atomic.LoadUint32(&progress), true, err)
+			updateProgress(progress, atomic.LoadUint32(progress), true, err, progressMutex, ops)
 		} else {
-			updateProgress(progressComplete, true, nil)
+			updateProgress(progress, progressComplete, true, nil, progressMutex, ops)
 		}
 	}()
 
@@ -128,7 +108,7 @@ func coalesce(parentFileIo, childFileIo FileIoProcessor, fileSize int64, ops Fil
 			}
 
 			newProgress := uint32(float64(segment.End) / float64(fileSize) * 100)
-			updateProgress(newProgress, false, nil)
+			updateProgress(progress, newProgress, false, nil, progressMutex, ops)
 		}
 
 		return nil

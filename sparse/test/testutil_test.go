@@ -20,6 +20,8 @@ const (
 	KB = 1024
 	MB = 1024 * KB
 	GB = 1024 * MB
+
+	BlockSizeLinux = 512
 )
 
 func filesAreEqual(aPath, bPath string) bool {

@@ -37,7 +37,7 @@ type model struct {
 	durationIgnore bool
 }
 
-// drops veryfied samples
+// drops verified samples
 func verifySampleDurations(m []model) bool {
 	for _, expected := range m {
 		sample := <-samples
@@ -61,7 +61,11 @@ func Test1(t *testing.T) {
 	Sample(time.Now(), time.Duration(2000), "", OpRead, 1024, true)
 
 	<-Process(appendSample)
-	if !verifySampleDurations([]model{{1000, 1024, false}, {2000, 1024, false}}) {
+	if !verifySampleDurations(
+		[]model{
+			{1000, 1024, false},
+			{2000, 1024, false},
+		}) {
 		t.Fatal("sample mismatch:", samples)
 	}
 }
@@ -78,17 +82,31 @@ func Test2(t *testing.T) {
 
 func Test3(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
-	resetStats(4)
 
-	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(2000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(3000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(4000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(5000), "", OpRead, 1024, true)
+	for _, op := range []SampleOp{OpRead, OpWrite, OpUnmap} {
+		resetStats(4)
 
-	<-Process(appendSample)
-	if !verifySampleDurations([]model{{2000, 1024, false}, {3000, 1024, false}, {4000, 1024, false}, {5000, 1024, false}}) {
-		t.Fatal("sample mismatch:", samples)
+		Sample(time.Now(), time.Duration(1000), "", op, 1024, true)
+		Sample(time.Now(), time.Duration(2000), "", op, 1024, true)
+		Sample(time.Now(), time.Duration(3000), "", op, 1024, true)
+		Sample(time.Now(), time.Duration(4000), "", op, 1024, true)
+		Sample(time.Now(), time.Duration(5000), "", op, 1024, true)
+		<-Process(appendSample)
+		if !verifySampleDurations(
+			[]model{
+				{2000, 1024, false},
+				{3000, 1024, false},
+				{4000, 1024, false},
+				{5000, 1024, false},
+			}) {
+			t.Fatal("sample mismatch:", samples)
+		}
+
+		Sample(time.Now(), time.Duration(6000), "", OpPing, 1024, true)
+		<-Process(appendSample)
+		if !verifySampleDurations([]model{{6000, 1024, false}}) {
+			t.Fatal("sample mismatch:", samples)
+		}
 	}
 }
 
@@ -97,21 +115,27 @@ func Test4(t *testing.T) {
 	resetStats(4)
 
 	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(2000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(3000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(4000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(5000), "", OpRead, 1024, true)
-
-	<-Process(appendSample)
-	if !verifySampleDurations([]model{{2000, 1024, false}, {3000, 1024, false}, {4000, 1024, false}, {5000, 1024, false}}) {
-		t.Fatal("sample mismatch:", samples)
+	var pending []OpID
+	pending = append(pending, InsertPendingOp(time.Now(), "", OpRead, 2048))
+	pending = append(pending, InsertPendingOp(time.Now(), "", OpWrite, 4096))
+	pending = append(pending, InsertPendingOp(time.Now(), "", OpUnmap, 8192))
+	err := RemovePendingOp(pending[0], true)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	Sample(time.Now(), time.Duration(6000), "", OpRead, 1024, true)
+	<-Print()
 
-	<-Process(appendSample)
-	if !verifySampleDurations([]model{{6000, 1024, false}}) {
-		t.Fatal("sample mismatch:", samples)
+	err = RemovePendingOp(pending[1], true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	<-Print()
+
+	err = RemovePendingOp(pending[2], true)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -127,31 +151,14 @@ func Test5(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	<-Print()
-
-	err = RemovePendingOp(pending[1], true)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func Test6(t *testing.T) {
-	log.SetLevel(log.InfoLevel)
-	resetStats(4)
-
-	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
-	var pending []OpID
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpRead, 2048))
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpWrite, 4096))
-	err := RemovePendingOp(pending[0], true)
-	if err != nil {
-		t.Fatal(err)
-	}
 	pending = append(pending, InsertPendingOp(time.Now(), "", OpPing, 8192))
 
 	<-Process(appendSample) // 1kB, 2kB
-	if !verifySampleDurations([]model{{1000, 1024, false}, {0, 2048, true}}) {
+	if !verifySampleDurations(
+		[]model{
+			{1000, 1024, false},
+			{0, 2048, true},
+		}) {
 		t.Fatal("sample mismatch:", samples)
 	}
 
@@ -165,18 +172,23 @@ func Test6(t *testing.T) {
 	}
 
 	<-Process(appendSample) // 4kB, 8kB
-	if !verifySampleDurations([]model{{0, 4096, false}, {0, 8192, false}}) {
+	if !verifySampleDurations(
+		[]model{
+			{0, 4096, false},
+			{0, 8192, false},
+		}) {
 		t.Fatal("sample mismatch:", samples)
 	}
 }
 
-func Test7(t *testing.T) {
+func Test6(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
 	var pending []OpID
 	pending = append(pending, InsertPendingOp(time.Now(), "", OpRead, 2048))
 	pending = append(pending, InsertPendingOp(time.Now(), "", OpWrite, 4096))
+	pending = append(pending, InsertPendingOp(time.Now(), "", OpUnmap, 1024))
 
 	err := RemovePendingOp(pending[0], true)
 	if err != nil {
@@ -199,7 +211,11 @@ func Test7(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pendingOpsFreeSlot) != 2 {
+	err = RemovePendingOp(pending[3], true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pendingOpsFreeSlot) != 3 {
 		t.Fatal("pendingOpsFreeSlot stack failure", pendingOpsFreeSlot)
 	}
 
@@ -207,7 +223,7 @@ func Test7(t *testing.T) {
 }
 
 // test ProcessLimited
-func Test8(t *testing.T) {
+func Test7(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
@@ -217,13 +233,17 @@ func Test8(t *testing.T) {
 	Sample(time.Now(), time.Duration(4000), "", OpRead, 1024, true)
 
 	<-ProcessLimited(2, appendSample)
-	if !verifySampleDurations([]model{{3000, 1024, false}, {4000, 1024, false}}) {
+	if !verifySampleDurations(
+		[]model{
+			{3000, 1024, false},
+			{4000, 1024, false},
+		}) {
 		t.Fatal("sample mismatch:", samples)
 	}
 }
 
 // test ProcessLimited; unspecified limit
-func Test9(t *testing.T) {
+func Test8(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
@@ -233,13 +253,19 @@ func Test9(t *testing.T) {
 	Sample(time.Now(), time.Duration(4000), "", OpRead, 1024, true)
 
 	<-ProcessLimited(0, appendSample)
-	if !verifySampleDurations([]model{{1000, 1024, false}, {2000, 1024, false}, {3000, 1024, false}, {4000, 1024, false}}) {
+	if !verifySampleDurations(
+		[]model{
+			{1000, 1024, false},
+			{2000, 1024, false},
+			{3000, 1024, false},
+			{4000, 1024, false},
+		}) {
 		t.Fatal("sample mismatch:", samples)
 	}
 }
 
 // test targetID
-func Test10(t *testing.T) {
+func Test9(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 

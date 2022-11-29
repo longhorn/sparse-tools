@@ -45,7 +45,7 @@ func Main() {
 		ops := &rest.SyncFileStub{}
 		err := rest.Server(context.Background(), *port, dstPath, ops)
 		if err != nil {
-			log.Fatalf("Ssync server failed, err: %s", err)
+			log.WithError(err).Fatalf("Ssync server failed")
 		}
 	} else {
 		if len(args) < 1 {
@@ -57,7 +57,7 @@ func Main() {
 
 		err := sparse.SyncFile(srcPath, *host+":"+*port, *timeout, *directIO)
 		if err != nil {
-			log.Fatalf("Ssync client failed, error: %s", err)
+			log.WithError(err).Fatalf("Ssync client failed")
 		}
 		log.Info("Ssync client: exit code 0")
 	}

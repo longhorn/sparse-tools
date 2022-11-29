@@ -52,7 +52,7 @@ Examples:
 	ops := &FileHandlingStub{}
 	err := sparse.FoldFile(srcPath, dstPath, ops)
 	if err != nil {
-		log.Errorf("failed to fold file: %s to: %s, err: %v", srcPath, dstPath, err)
+		log.WithError(err).Errorf("Failed to fold file %s to %s", srcPath, dstPath)
 		os.Exit(1)
 	}
 }

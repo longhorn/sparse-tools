@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
 	. "github.com/longhorn/sparse-tools/sparse"
@@ -54,7 +55,7 @@ func TestFileSync(t *testing.T) {
 	startTime := time.Now()
 	go rest.TestServer(context.Background(), port, dstPath, timeout)
 	time.Sleep(time.Second)
-	err := SyncFile(srcPath, localhost+":"+port, timeout, true)
+	err := SyncFile(srcPath, localhost+":"+port, timeout, true, false)
 	if err != nil {
 		t.Fatalf("sync error: %v", err)
 	}
@@ -100,11 +101,11 @@ func writeMultipleHolesData(filePath string, fileSize int64, dataSize int64, hol
 	for offset := int64(0); offset < fileSize; {
 		blockData := RandomBlock(dataSize)
 		if nw, err := f.WriteAt(blockData, offset); err != nil {
-			return fmt.Errorf("write at %v, number of write %v, error: %v", offset, nw, err)
+			return errors.Wrapf(err, "write at %v, number of write %v", offset, nw)
 		}
 		offset += dataSize
 		if err := NewFiemapFile(f.GetFile()).PunchHole(offset, holeSize); err != nil {
-			return fmt.Errorf("punch hole at %v error: %v", offset, err)
+			return errors.Wrapf(err, "punch hole at %v", offset)
 		}
 		offset += holeSize
 

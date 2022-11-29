@@ -9,12 +9,16 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/longhorn/sparse-tools/types"
+	"github.com/longhorn/sparse-tools/util"
 )
 
 const (
@@ -24,12 +28,16 @@ const (
 )
 
 type syncClient struct {
-	remote   string
-	timeout  int
+	remote     string
+	timeout    int
 	sourceName string
-	size int64
-	rw ReaderWriterAt
-	directIO bool
+	size       int64
+	rw         ReaderWriterAt
+	directIO   bool
+
+	recordedChangeTime     string
+	recordedChecksumMethod string
+	recordedChecksum       string
 
 	httpClient *http.Client
 }
@@ -53,14 +61,25 @@ func newHTTPClient() *http.Client {
 	}
 }
 
-func newSyncClient(remote string, timeout int, sourceName string, size int64, rw ReaderWriterAt, directIO bool) *syncClient {
-	return &syncClient{remote: remote, timeout: timeout, sourceName: sourceName, size:size, rw: rw, directIO: directIO, httpClient: newHTTPClient()}
+func newSyncClient(remote string, timeout int, sourceName string, size int64, rw ReaderWriterAt, directIO bool,
+	recordedChangeTime, recordedChecksumMethod, recordedChecksum string) *syncClient {
+	return &syncClient{
+		remote:     remote,
+		timeout:    timeout,
+		sourceName: sourceName,
+		size:       size,
+		rw:         rw,
+		directIO:   directIO,
+		httpClient: newHTTPClient(),
+
+		recordedChangeTime:     recordedChangeTime,
+		recordedChecksumMethod: recordedChecksumMethod,
+		recordedChecksum:       recordedChecksum,
+	}
 }
 
-const connectionRetries = 5
-
 // SyncFile synchronizes local file to remote host
-func SyncFile(localPath string, remote string, timeout int, directIO bool) error {
+func SyncFile(localPath string, remote string, timeout int, directIO, fastSync bool) error {
 	fileInfo, err := os.Stat(localPath)
 	if err != nil {
 		log.WithError(err).Errorf("Failed to get file info of source file %s", localPath)
@@ -72,22 +91,26 @@ func SyncFile(localPath string, remote string, timeout int, directIO bool) error
 		return fmt.Errorf("invalid file size %v for directIO", fileSize)
 	}
 
-	var fileIo FileIoProcessor
-	if directIO {
-		fileIo, err = NewDirectFileIoProcessor(localPath, os.O_RDONLY, 0)
-	} else {
-		fileIo, err = NewBufferedFileIoProcessor(localPath, os.O_RDONLY, 0)
-	}
+	log.Infof("Syncing file %v to %v: size %v, directIO %v, fastSync %v", localPath, remote, fileSize, directIO, fastSync)
+
+	fileIo, err := newFileIoProcessor(localPath, directIO)
 	if err != nil {
 		log.WithError(err).Errorf("Failed to open local source file %v", localPath)
 		return err
 	}
 	defer fileIo.Close()
 
-	return SyncContent(fileIo.Name(), fileIo, fileSize, remote, timeout, directIO)
+	return SyncContent(fileIo.Name(), fileIo, fileSize, remote, timeout, directIO, fastSync)
 }
 
-func SyncContent(sourceName string, rw ReaderWriterAt, size int64, remote string, timeout int, directIO bool) (err error) {
+func newFileIoProcessor(localPath string, directIO bool) (FileIoProcessor, error) {
+	if directIO {
+		return NewDirectFileIoProcessor(localPath, os.O_RDONLY, 0)
+	}
+	return NewBufferedFileIoProcessor(localPath, os.O_RDONLY, 0)
+}
+
+func SyncContent(sourceName string, rw ReaderWriterAt, size int64, remote string, timeout int, directIO, fastSync bool) (err error) {
 	defer func() {
 		err = errors.Wrapf(err, "failed to sync content for source file %v", sourceName)
 	}()
@@ -96,8 +119,26 @@ func SyncContent(sourceName string, rw ReaderWriterAt, size int64, remote string
 		return fmt.Errorf("source file %v has invalid file size %v for directIO", sourceName, size)
 	}
 
-	client := newSyncClient(remote, timeout, sourceName, size, rw, directIO)
-	defer client.closeServer() // kill the server no matter success or not, best effort
+	// Get change time and checksum from checksum file
+	recordedChangeTime := ""
+	recordedChecksumMethod := ""
+	recordedChecksum := ""
+	if filepath.Ext(sourceName) == types.SnapshotDiskSuffix {
+		recordedChangeTime, recordedChecksumMethod, recordedChecksum, err = getLocalDiskFileChangeTimeAndChecksum(sourceName)
+		if err != nil {
+			log.WithError(err).Warnf("Failed to get change time and checksum of local file %v", sourceName)
+		}
+	}
+
+	client := newSyncClient(remote, timeout, sourceName, size, rw, directIO, recordedChangeTime, recordedChecksumMethod, recordedChecksum)
+	defer client.close() // kill the server no matter success or not, best effort
+
+	if fastSync && filepath.Ext(client.sourceName) == types.SnapshotDiskSuffix {
+		if client.isLocalAndRemoteDiskFilesIdentical() {
+			log.Infof("Skipped syncing file %v", client.sourceName)
+			return nil
+		}
+	}
 
 	syncStartTime := time.Now()
 
@@ -137,6 +178,71 @@ func (client *syncClient) syncContent() error {
 		break
 	}
 	return err
+}
+
+func (client *syncClient) isLocalAndRemoteDiskFilesIdentical() bool {
+	if client.recordedChangeTime == "" || client.recordedChecksumMethod == "" || client.recordedChecksum == "" {
+		return false
+	}
+
+	remain, err := client.isLocalDiskFileRemain()
+	if err != nil {
+		log.WithError(err).Warnf("Failed to check if local file %v is changed", client.sourceName)
+		return false
+	}
+	if !remain {
+		return false
+	}
+
+	remoteRecordedChecksum, err := client.getRemoteDiskFileRecordedChecksum()
+	if err != nil {
+		log.WithError(err).Warnf("Failed to get checksum for remote file %v", client.sourceName)
+		return false
+	}
+
+	return client.recordedChecksum == remoteRecordedChecksum
+}
+
+func (client *syncClient) isLocalDiskFileRemain() (bool, error) {
+	currentChangeTime, err := util.GetFileChangeTime(client.sourceName)
+	if err != nil {
+		return false, err
+	}
+	return currentChangeTime == client.recordedChangeTime, nil
+}
+
+func (client *syncClient) getRemoteDiskFileRecordedChecksum() (string, error) {
+	metadata, err := client.getServerRecordedMetadata()
+	if err != nil {
+		return "", err
+	}
+
+	var info types.SnapshotHashInfo
+	if err := json.Unmarshal(metadata, &info); err != nil {
+		return "", errors.Wrap(err, "failed to unmarshal hash info")
+	}
+
+	return info.Checksum, nil
+}
+
+func getLocalDiskFileChangeTimeAndChecksum(sourceName string) (recordedChangeTime, recordedChecksumMethod, recordedChecksum string, err error) {
+	f, err := os.Open(sourceName + types.DiskChecksumSuffix)
+	if err != nil {
+		return "", "", "", errors.Wrap(err, "failed to open checksum file")
+	}
+	defer f.Close()
+
+	data, err := ioutil.ReadAll(f)
+	if err != nil {
+		return "", "", "", errors.Wrap(err, "failed to read checksum file")
+	}
+
+	var info types.SnapshotHashInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return "", "", "", errors.Wrap(err, "failed to unmarshal hash info")
+	}
+
+	return info.ChangeTime, info.Method, info.Checksum, nil
 }
 
 func (client *syncClient) processSegment(segment FileInterval) error {
@@ -185,7 +291,7 @@ func (client *syncClient) sendHTTPRequest(method string, action string, queries 
 	return httpClient.Do(req)
 }
 
-func (client *syncClient) openServer() error {
+func (client *syncClient) open() error {
 	var err error
 	var resp *http.Response
 
@@ -223,8 +329,10 @@ func (client *syncClient) openServer() error {
 	return nil
 }
 
-func (client *syncClient) closeServer() {
+func (client *syncClient) close() {
 	queries := make(map[string]string)
+	queries["checksumMethod"] = client.recordedChecksumMethod
+	queries["checksum"] = client.recordedChecksum
 	resp, err := client.sendHTTPRequest("POST", "close", queries, nil)
 	if err == nil {
 		// drain the buffer and close the body
@@ -273,6 +381,25 @@ func (client *syncClient) getServerChecksum(checksumInterval Interval) ([]byte, 
 	}
 
 	return checksum, err
+}
+
+func (client *syncClient) getServerRecordedMetadata() ([]byte, error) {
+	queries := make(map[string]string)
+	resp, err := client.sendHTTPRequest("GET", "getRecordedMetadata", queries, nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get recorded metadata")
+	}
+
+	// drain the buffer and close the body
+	metadata, err := ioutil.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get recorded metadata: status code=%v (%v)",
+			resp.StatusCode, http.StatusText(resp.StatusCode))
+	}
+
+	return metadata, err
 }
 
 func (client *syncClient) writeData(dataInterval Interval, data []byte) error {

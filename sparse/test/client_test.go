@@ -25,7 +25,7 @@ func TestSyncSmallFile1(t *testing.T) {
 
 	data := []byte("json-fault")
 	createTestSmallFile(localPath, len(data), data)
-	testSyncAnyFile(t, localPath, remotePath, false /* directIO */)
+	testSyncAnyFile(t, localPath, remotePath, false /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile2(t *testing.T) {
@@ -39,7 +39,7 @@ func TestSyncSmallFile2(t *testing.T) {
 	data1 := []byte("json")
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data1), data1)
-	testSyncAnyFile(t, localPath, remotePath, false /* directIO */)
+	testSyncAnyFile(t, localPath, remotePath, false /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile3(t *testing.T) {
@@ -52,7 +52,7 @@ func TestSyncSmallFile3(t *testing.T) {
 	data := []byte("json-fault")
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data), data)
-	testSyncAnyFile(t, localPath, remotePath, false /* directIO */)
+	testSyncAnyFile(t, localPath, remotePath, false /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile4(t *testing.T) {
@@ -65,7 +65,7 @@ func TestSyncSmallFile4(t *testing.T) {
 	data := []byte("json-fault")
 	createTestSmallFile(localPath, 0, make([]byte, 0))
 	createTestSmallFile(remotePath, len(data), data)
-	testSyncAnyFile(t, localPath, remotePath, false /* directIO */)
+	testSyncAnyFile(t, localPath, remotePath, false /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile256Byte(t *testing.T) {
@@ -79,7 +79,7 @@ func TestSyncSmallFile256Byte(t *testing.T) {
 	data1 := make([]byte, 256)
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data1), data1)
-	testSyncAnyFileExpectFailure(t, localPath, remotePath, true /* directIO */)
+	testSyncAnyFileExpectFailure(t, localPath, remotePath, true /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile256ByteNoDirectIO(t *testing.T) {
@@ -93,7 +93,7 @@ func TestSyncSmallFile256ByteNoDirectIO(t *testing.T) {
 	data1 := make([]byte, 256)
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data1), data1)
-	testSyncAnyFile(t, localPath, remotePath, false /* directIO */)
+	testSyncAnyFile(t, localPath, remotePath, false /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile512Byte(t *testing.T) {
@@ -107,7 +107,7 @@ func TestSyncSmallFile512Byte(t *testing.T) {
 	data1 := make([]byte, 512)
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data1), data1)
-	testSyncAnyFileExpectFailure(t, localPath, remotePath, true /* directIO */)
+	testSyncAnyFileExpectFailure(t, localPath, remotePath, true /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile512ByteNoDirectIO(t *testing.T) {
@@ -121,7 +121,7 @@ func TestSyncSmallFile512ByteNoDirectIO(t *testing.T) {
 	data1 := make([]byte, 512)
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data1), data1)
-	testSyncAnyFile(t, localPath, remotePath, false /* directIO */)
+	testSyncAnyFile(t, localPath, remotePath, false /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile4MB(t *testing.T) {
@@ -135,7 +135,7 @@ func TestSyncSmallFile4MB(t *testing.T) {
 	data1 := make([]byte, 4096)
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data1), data1)
-	testSyncAnyFile(t, localPath, remotePath, true /* directIO */)
+	testSyncAnyFile(t, localPath, remotePath, true /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile4MBNoDirectIO(t *testing.T) {
@@ -149,7 +149,7 @@ func TestSyncSmallFile4MBNoDirectIO(t *testing.T) {
 	data1 := make([]byte, 4096)
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data1), data1)
-	testSyncAnyFile(t, localPath, remotePath, false /* directIO */)
+	testSyncAnyFile(t, localPath, remotePath, false /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile_8MB_DirectIO(t *testing.T) {
@@ -163,7 +163,7 @@ func TestSyncSmallFile_8MB_DirectIO(t *testing.T) {
 	data1 := make([]byte, 8192)
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data1), data1)
-	testSyncAnyFile(t, localPath, remotePath, true /* directIO */)
+	testSyncAnyFile(t, localPath, remotePath, true /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile_8MB_NoDirectIO(t *testing.T) {
@@ -177,7 +177,7 @@ func TestSyncSmallFile_8MB_NoDirectIO(t *testing.T) {
 	data1 := make([]byte, 8192)
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data1), data1)
-	testSyncAnyFile(t, localPath, remotePath, false /* directIO */)
+	testSyncAnyFile(t, localPath, remotePath, false /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile_8MB_Minus_512KB_DirectIO(t *testing.T) {
@@ -191,7 +191,7 @@ func TestSyncSmallFile_8MB_Minus_512KB_DirectIO(t *testing.T) {
 	data1 := make([]byte, 7680)
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data1), data1)
-	testSyncAnyFileExpectFailure(t, localPath, remotePath, true /* directIO */)
+	testSyncAnyFileExpectFailure(t, localPath, remotePath, true /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile_8MB_Plus_512KB_DirectIO(t *testing.T) {
@@ -205,7 +205,7 @@ func TestSyncSmallFile_8MB_Plus_512KB_DirectIO(t *testing.T) {
 	data1 := make([]byte, 7680)
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data1), data1)
-	testSyncAnyFileExpectFailure(t, localPath, remotePath, true /* directIO */)
+	testSyncAnyFileExpectFailure(t, localPath, remotePath, true /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile_8MB_Minus_512KB_NoDirectIO(t *testing.T) {
@@ -219,7 +219,7 @@ func TestSyncSmallFile_8MB_Minus_512KB_NoDirectIO(t *testing.T) {
 	data1 := make([]byte, 8704)
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data1), data1)
-	testSyncAnyFile(t, localPath, remotePath, false /* directIO */)
+	testSyncAnyFile(t, localPath, remotePath, false /* directIO */, false /* fastSync */)
 }
 
 func TestSyncSmallFile_8MB_Plus_512KB_NoDirectIO(t *testing.T) {
@@ -233,7 +233,7 @@ func TestSyncSmallFile_8MB_Plus_512KB_NoDirectIO(t *testing.T) {
 	data1 := make([]byte, 8704)
 	createTestSmallFile(localPath, len(data), data)
 	createTestSmallFile(remotePath, len(data1), data1)
-	testSyncAnyFile(t, localPath, remotePath, false /* directIO */)
+	testSyncAnyFile(t, localPath, remotePath, false /* directIO */, false /* fastSync */)
 }
 
 func TestSyncAnyFile(t *testing.T) {
@@ -243,14 +243,14 @@ func TestSyncAnyFile(t *testing.T) {
 	// ad hoc test for testing specific problematic files
 	// disabled by default
 	if run {
-		testSyncAnyFile(t, src, dst, true /* directIO */)
+		testSyncAnyFile(t, src, dst, true /* directIO */, false /* fastSync */)
 	}
 }
 
-func testSyncAnyFile(t *testing.T, src, dst string, directIO bool) {
+func testSyncAnyFile(t *testing.T, src, dst string, directIO, fastSync bool) {
 	// Sync
 	go rest.TestServer(context.Background(), port, dst, timeout)
-	err := SyncFile(src, localhost+":"+port, timeout, directIO)
+	err := SyncFile(src, localhost+":"+port, timeout, directIO, fastSync)
 
 	// Verify
 	if err != nil {
@@ -265,10 +265,10 @@ func testSyncAnyFile(t *testing.T, src, dst string, directIO bool) {
 	}
 }
 
-func testSyncAnyFileExpectFailure(t *testing.T, src, dst string, directIO bool) {
+func testSyncAnyFileExpectFailure(t *testing.T, src, dst string, directIO, fastSync bool) {
 	// Sync
 	go rest.TestServer(context.Background(), port, dst, timeout)
-	err := SyncFile(src, localhost+":"+port, timeout, directIO)
+	err := SyncFile(src, localhost+":"+port, timeout, directIO, fastSync)
 
 	// Verify
 	if err == nil {
@@ -727,7 +727,7 @@ func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval, direct
 
 	// Sync
 	go rest.TestServer(context.Background(), port, remotePath, timeout)
-	err := SyncFile(localPath, localhost+":"+port, timeout, true /* directIO */)
+	err := SyncFile(localPath, localhost+":"+port, timeout, true /* directIO */, false /* fastSync */)
 
 	// Verify
 	if err != nil {
@@ -766,7 +766,7 @@ func Benchmark_1G_InitFiles(b *testing.B) {
 
 func Benchmark_1G_SendFiles_Whole(b *testing.B) {
 	go rest.TestServer(context.Background(), port, remoteBigPath, timeout)
-	err := SyncFile(localBigPath, localhost+":"+port, timeout, true /* directIO */)
+	err := SyncFile(localBigPath, localhost+":"+port, timeout, true /* directIO */, false /* fastSync */)
 
 	if err != nil {
 		b.Fatal("sync error")
@@ -775,7 +775,7 @@ func Benchmark_1G_SendFiles_Whole(b *testing.B) {
 
 func Benchmark_1G_SendFiles_Whole_No_DirectIO(b *testing.B) {
 	go rest.TestServer(context.Background(), port, remoteBigPath, timeout)
-	err := SyncFile(localBigPath, localhost+":"+port, timeout, false /* directIO */)
+	err := SyncFile(localBigPath, localhost+":"+port, timeout, false /* directIO */, false /* fastSync */)
 
 	if err != nil {
 		b.Fatal("sync error")
@@ -785,7 +785,7 @@ func Benchmark_1G_SendFiles_Whole_No_DirectIO(b *testing.B) {
 func Benchmark_1G_SendFiles_Diff(b *testing.B) {
 
 	go rest.TestServer(context.Background(), port, remoteBigPath, timeout)
-	err := SyncFile(localBigPath, localhost+":"+port, timeout, true /* directIO */)
+	err := SyncFile(localBigPath, localhost+":"+port, timeout, true /* directIO */, false /* fastSync */)
 
 	if err != nil {
 		b.Fatal("sync error")
@@ -808,7 +808,7 @@ func TestSyncSmallSnapshot4MB(t *testing.T) {
 	filesCleanup(localPath, remotePath)
 	defer filesCleanup(localPath, remotePath)
 
-	size := 4*1024*1024
+	size := 4 * 1024 * 1024
 	data := make([]byte, size)
 	rand.Read(data)
 
@@ -845,11 +845,10 @@ func TestSyncSnapshotZeroByte(t *testing.T) {
 	testSyncAnyContent(t, localPath, remotePath, fileIo, int64(size))
 }
 
-
 func testSyncAnyContent(t *testing.T, snapshotName string, dstFileName string, rw ReaderWriterAt, snapshotSize int64) {
 	// Sync
 	go rest.TestServer(context.Background(), port, dstFileName, timeout)
-	err := SyncContent(snapshotName,  rw, snapshotSize, localhost+":"+port, timeout, true)
+	err := SyncContent(snapshotName, rw, snapshotSize, localhost+":"+port, timeout, true, false)
 
 	// Verify
 	if err != nil {

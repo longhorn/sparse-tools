@@ -8,11 +8,15 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
+	"syscall"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/longhorn/sparse-tools/sparse"
+	"github.com/longhorn/sparse-tools/types"
+	"github.com/longhorn/sparse-tools/util"
 )
 
 type SyncFileOperations interface {
@@ -35,6 +39,16 @@ func (server *SyncServer) getQueryDirectIO(request *http.Request) (bool, error) 
 		return false, errors.Wrapf(err, "failed to parse directIO string %v", directIOStr)
 	}
 	return directIO, nil
+}
+
+func (server *SyncServer) getQueryChecksumMethod(request *http.Request) string {
+	queryParams := request.URL.Query()
+	return queryParams.Get("checksumMethod")
+}
+
+func (server *SyncServer) getQueryChecksum(request *http.Request) string {
+	queryParams := request.URL.Query()
+	return queryParams.Get("checksum")
 }
 
 func (server *SyncServer) getQueryInterval(request *http.Request) (sparse.Interval, error) {
@@ -68,7 +82,7 @@ func (server *SyncServer) open(writer http.ResponseWriter, request *http.Request
 		return
 	}
 
-	log.Info("Ssync server opened and ready")
+	log.Infof("Ssync server is opened and ready for receiving file %v", server.filePath)
 }
 
 func (server *SyncServer) doOpen(request *http.Request) error {
@@ -89,7 +103,7 @@ func (server *SyncServer) doOpen(request *http.Request) error {
 	}
 	log.Infof("Receiving %v: size %v, directIO %v", server.filePath, interval.End, directIO)
 
-	fileIo, err := server.getFileIo(directIO)
+	fileIo, err := server.newFileIoProcessor(directIO)
 	if err != nil {
 		return errors.Wrapf(err, "failed to open/create local source file %v", server.filePath)
 	}
@@ -105,7 +119,17 @@ func (server *SyncServer) doOpen(request *http.Request) error {
 	return nil
 }
 
+func (server *SyncServer) newFileIoProcessor(directIO bool) (sparse.FileIoProcessor, error) {
+	if directIO {
+		return sparse.NewDirectFileIoProcessor(server.filePath, os.O_RDWR, 0666, true)
+	}
+	return sparse.NewBufferedFileIoProcessor(server.filePath, os.O_RDWR, 0666, true)
+}
+
 func (server *SyncServer) close(writer http.ResponseWriter, request *http.Request) {
+	checksumMethod := server.getQueryChecksumMethod(request)
+	checksum := server.getQueryChecksum(request)
+
 	if f, ok := writer.(http.Flusher); ok {
 		f.Flush()
 	}
@@ -113,7 +137,23 @@ func (server *SyncServer) close(writer http.ResponseWriter, request *http.Reques
 	if server.fileIo != nil {
 		server.fileIo.Close()
 	}
-	log.Infof("Closing ssync server")
+
+	if checksumMethod != "" && checksum != "" {
+		changeTime, err := util.GetFileChangeTime(server.filePath)
+		if err == nil {
+			info := &types.SnapshotHashInfo{
+				Method:     checksumMethod,
+				Checksum:   checksum,
+				ChangeTime: changeTime,
+			}
+
+			err = util.SetSnapshotHashInfoToChecksumFile(server.filePath+".checksum", info)
+		}
+
+		if err != nil {
+			log.WithError(err).Warnf("Failed ot set snapshot hash info to checksum file %v", server.filePath)
+		}
+	}
 
 	log.Infof("Closing Ssync server")
 	server.cancelFunc()
@@ -209,4 +249,59 @@ func (server *SyncServer) doWriteData(request *http.Request) error {
 	}
 
 	return nil
+}
+
+func (server *SyncServer) getRecordedMetadata(writer http.ResponseWriter, request *http.Request) {
+	err := server.doGetRecordedMetadata(writer, request)
+	if err != nil {
+		log.WithError(err).Errorf("Failed to get recorded metadata for file %v", server.filePath)
+
+		if strings.Contains(err.Error(), syscall.ENOENT.Error()) {
+			http.Error(writer, err.Error(), http.StatusNotFound)
+		} else {
+			http.Error(writer, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+func (server *SyncServer) doGetRecordedMetadata(writer http.ResponseWriter, request *http.Request) error {
+	// Recorded change time
+	metadata, err := server.getRecordedMetadataFromChecksumFile()
+	if err != nil {
+		return err
+	}
+	var info types.SnapshotHashInfo
+	if err := json.Unmarshal(metadata, &info); err != nil {
+		return errors.Wrap(err, "failed to unmarshal hash info")
+	}
+
+	// Current change time
+	currentChangeTime, err := util.GetFileChangeTime(server.filePath)
+	if err != nil {
+		return err
+	}
+	if currentChangeTime != info.ChangeTime {
+		return fmt.Errorf("disk file %v is changed (current change time %v, expected change time %v)",
+			server.filePath, currentChangeTime, info.ChangeTime)
+	}
+
+	writer.Header().Set("Content-Type", "application/json")
+	fmt.Fprint(writer, string(metadata))
+
+	return nil
+}
+
+func (server *SyncServer) getRecordedMetadataFromChecksumFile() ([]byte, error) {
+	f, err := os.Open(server.filePath + types.DiskChecksumSuffix)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to open checksum file")
+	}
+	defer f.Close()
+
+	metadata, err := ioutil.ReadAll(f)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read checksum file")
+	}
+
+	return metadata, nil
 }

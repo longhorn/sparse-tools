@@ -27,6 +27,7 @@ func Main() {
 	timeout := flag.Int("timeout", 120, "optional daemon/client timeout (seconds)")
 	host := flag.String("host", "", "remote host of <DstFile> (requires running daemon)")
 	directIO := flag.Bool("directIO", true, "optional client sync file using directIO")
+	fastSync := flag.Bool("fastSync", true, "optional fast synchronization based on file's change time and checksum")
 
 	flag.Parse()
 
@@ -55,7 +56,7 @@ func Main() {
 		srcPath := args[0]
 		log.Infof("Syncing %s to %s:%s...\n", srcPath, *host, *port)
 
-		err := sparse.SyncFile(srcPath, *host+":"+*port, *timeout, *directIO)
+		err := sparse.SyncFile(srcPath, *host+":"+*port, *timeout, *directIO, *fastSync)
 		if err != nil {
 			log.WithError(err).Fatalf("Ssync client failed")
 		}

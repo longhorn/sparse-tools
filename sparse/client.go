@@ -27,6 +27,15 @@ const (
 	defaultSyncWorkerCount = 4
 )
 
+type DataSyncClient interface {
+	open() error
+	close()
+	syncHoleInterval(holeInterval Interval) error
+	syncDataInterval(dataInterval Interval) error
+	getServerChecksum(checksumInterval Interval) ([]byte, error)
+	getServerRecordedMetadata() ([]byte, error)
+}
+
 type syncClient struct {
 	remote     string
 	timeout    int

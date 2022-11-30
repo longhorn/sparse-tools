@@ -27,7 +27,7 @@ type SyncFileStub struct{}
 
 func (f *SyncFileStub) UpdateSyncFileProgress(size int64) {}
 
-func (server *SyncServer) getQueryDirectIO(request *http.Request) (bool, error) {
+func getQueryDirectIO(request *http.Request) (bool, error) {
 	queryParams := request.URL.Query()
 	directIOStr := queryParams.Get("directIO")
 	if directIOStr == "" {
@@ -41,17 +41,17 @@ func (server *SyncServer) getQueryDirectIO(request *http.Request) (bool, error) 
 	return directIO, nil
 }
 
-func (server *SyncServer) getQueryChecksumMethod(request *http.Request) string {
+func getQueryChecksumMethod(request *http.Request) string {
 	queryParams := request.URL.Query()
 	return queryParams.Get("checksumMethod")
 }
 
-func (server *SyncServer) getQueryChecksum(request *http.Request) string {
+func getQueryChecksum(request *http.Request) string {
 	queryParams := request.URL.Query()
 	return queryParams.Get("checksum")
 }
 
-func (server *SyncServer) getQueryInterval(request *http.Request) (sparse.Interval, error) {
+func getQueryInterval(request *http.Request) (sparse.Interval, error) {
 	var interval sparse.Interval
 
 	queryParams := request.URL.Query()
@@ -87,13 +87,13 @@ func (server *SyncServer) open(writer http.ResponseWriter, request *http.Request
 
 func (server *SyncServer) doOpen(request *http.Request) error {
 	// get directIO
-	directIO, err := server.getQueryDirectIO(request)
+	directIO, err := getQueryDirectIO(request)
 	if err != nil {
 		return errors.Wrap(err, "failed to query directIO")
 	}
 
 	// get file size
-	interval, err := server.getQueryInterval(request)
+	interval, err := getQueryInterval(request)
 	if err != nil {
 		return errors.Wrap(err, "failed to query interval")
 	}
@@ -127,8 +127,8 @@ func (server *SyncServer) newFileIoProcessor(directIO bool) (sparse.FileIoProces
 }
 
 func (server *SyncServer) close(writer http.ResponseWriter, request *http.Request) {
-	checksumMethod := server.getQueryChecksumMethod(request)
-	checksum := server.getQueryChecksum(request)
+	checksumMethod := getQueryChecksumMethod(request)
+	checksum := getQueryChecksum(request)
 
 	if f, ok := writer.(http.Flusher); ok {
 		f.Flush()
@@ -168,7 +168,7 @@ func (server *SyncServer) sendHole(writer http.ResponseWriter, request *http.Req
 }
 
 func (server *SyncServer) doSendHole(request *http.Request) error {
-	remoteHoleInterval, err := server.getQueryInterval(request)
+	remoteHoleInterval, err := getQueryInterval(request)
 	if err != nil {
 		return errors.Wrap(err, "failed to query interval")
 	}
@@ -191,7 +191,7 @@ func (server *SyncServer) getChecksum(writer http.ResponseWriter, request *http.
 }
 
 func (server *SyncServer) doGetChecksum(writer http.ResponseWriter, request *http.Request) error {
-	remoteDataInterval, err := server.getQueryInterval(request)
+	remoteDataInterval, err := getQueryInterval(request)
 	if err != nil {
 		return errors.Wrap(err, "failed to query interval")
 	}
@@ -230,7 +230,7 @@ func (server *SyncServer) writeData(writer http.ResponseWriter, request *http.Re
 }
 
 func (server *SyncServer) doWriteData(request *http.Request) error {
-	remoteDataInterval, err := server.getQueryInterval(request)
+	remoteDataInterval, err := getQueryInterval(request)
 	if err != nil {
 		return errors.Wrap(err, "failed to query interval")
 	}

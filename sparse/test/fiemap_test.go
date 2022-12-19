@@ -77,7 +77,7 @@ func writeMultipleHolesData(filePath string, fileSize int64, dataSize int64, hol
 
 	const GB = int64(1024 * 1024 * 1024)
 	sizeInGB := fileSize / GB
-	log.Infof("start to create a %vGB file with multiple hole", sizeInGB)
+	log.Infof("Start to create a %vGB file with multiple hole", sizeInGB)
 	f, err := NewDirectFileIoProcessor(filePath, os.O_RDWR, 0666, true)
 	if err != nil {
 		return err
@@ -111,7 +111,7 @@ func writeMultipleHolesData(filePath string, fileSize int64, dataSize int64, hol
 
 		if offset%GB == 0 {
 			writtenGB := offset / GB
-			log.Infof("wrote %vGB of %vGB time delta: %.2f time elapsed: %.2f",
+			log.Infof("Wrote %vGB of %vGB time delta: %.2f time elapsed: %.2f",
 				writtenGB, sizeInGB,
 				time.Now().Sub(deltaTime).Seconds(),
 				time.Now().Sub(startTime).Seconds())
@@ -119,7 +119,7 @@ func writeMultipleHolesData(filePath string, fileSize int64, dataSize int64, hol
 		}
 	}
 
-	log.Infof("done creating a %vGB file with multiple hole, time elapsed: %.2f", sizeInGB, time.Now().Sub(startTime).Seconds())
+	log.Infof("Done creating a %vGB file with multiple hole, time elapsed: %.2f", sizeInGB, time.Now().Sub(startTime).Seconds())
 	return nil
 }
 

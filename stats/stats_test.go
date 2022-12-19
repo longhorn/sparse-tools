@@ -42,11 +42,11 @@ func verifySampleDurations(m []model) bool {
 	for _, expected := range m {
 		sample := <-samples
 		if !expected.durationIgnore && sample.duration != time.Duration(expected.duration) {
-			log.Error("queue duration mismatch; expected=", sample.duration, "actual=", time.Duration(expected.duration))
+			log.Error("Queue duration mismatch; expected=", sample.duration, "actual=", time.Duration(expected.duration))
 			return false
 		}
 		if sample.size != expected.size {
-			log.Error("queue size mismatch; expected=", sample.size, "actual=", expected.size)
+			log.Error("Queue size mismatch; expected=", sample.size, "actual=", expected.size)
 			return false
 		}
 	}

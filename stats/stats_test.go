@@ -1,7 +1,7 @@
 package stats
 
 import (
-	"io/ioutil"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -11,7 +11,7 @@ import (
 
 func tempFilePath() string {
 	// Make a temporary file path
-	f, err := ioutil.TempFile("", "stat-test")
+	f, err := os.CreateTemp("", "stat-test")
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}

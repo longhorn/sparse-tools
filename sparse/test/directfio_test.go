@@ -4,10 +4,7 @@ import (
 	"bytes"
 	"os"
 	"testing"
-
 	"time"
-
-	"io/ioutil"
 
 	log "github.com/sirupsen/logrus"
 
@@ -16,7 +13,7 @@ import (
 
 func tempFilePathDirectIo() string {
 	// Make a temporary file path
-	f, err := ioutil.TempFile("", "directIO-test")
+	f, err := os.CreateTemp("", "directIO-test")
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}
@@ -28,7 +25,7 @@ func tempFilePathDirectIo() string {
 // created in current directory
 func tempBigFilePathDirectIo() string {
 	// Make a temporary file path in current dir
-	f, err := ioutil.TempFile(".", "directIO-test")
+	f, err := os.CreateTemp(".", "directIO-test")
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}

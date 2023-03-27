@@ -1,13 +1,11 @@
 package test
 
 import (
-	"io/ioutil"
+	"fmt"
 	"math/rand"
 	"os"
 	"os/exec"
 	"time"
-
-	"fmt"
 
 	log "github.com/sirupsen/logrus"
 
@@ -41,7 +39,7 @@ func fileCleanup(path string) {
 
 func tempFilePath(prefix string) string {
 	// Make a temporary file path
-	f, err := ioutil.TempFile("", "sparse-"+prefix)
+	f, err := os.CreateTemp("", "sparse-"+prefix)
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}
@@ -53,7 +51,7 @@ func tempFilePath(prefix string) string {
 // created in current directory
 func tempBigFilePath(prefix string) string {
 	// Make a temporary file path in current dir
-	f, err := ioutil.TempFile(".", "sparse-"+prefix)
+	f, err := os.CreateTemp(".", "sparse-"+prefix)
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}

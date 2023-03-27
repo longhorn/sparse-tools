@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -110,7 +109,7 @@ func SyncFile(localPath string, remote string, httpClientTimeout int, directIO, 
 
 	log.Infof("Syncing file %v to %v: size %v, directIO %v, fastSync %v", localPath, remote, fileSize, directIO, fastSync)
 
-	fileIo, err := NewBufferedFileIoProcessor(localPath, os.O_RDONLY, 0)
+	fileIo, err := newFileIoProcessor(localPath, directIO)
 	if err != nil {
 		log.WithError(err).Errorf("Failed to open local source file %v", localPath)
 		return err
@@ -118,6 +117,13 @@ func SyncFile(localPath string, remote string, httpClientTimeout int, directIO, 
 	defer fileIo.Close()
 
 	return SyncContent(fileIo.Name(), fileIo, fileSize, remote, httpClientTimeout, directIO, fastSync)
+}
+
+func newFileIoProcessor(localPath string, directIO bool) (FileIoProcessor, error) {
+	if directIO {
+		return NewDirectFileIoProcessor(localPath, os.O_RDONLY, 0)
+	}
+	return NewBufferedFileIoProcessor(localPath, os.O_RDONLY, 0)
 }
 
 func SyncContent(sourceName string, rw ReaderWriterAt, fileSize int64, remote string, httpClientTimeout int, directIO, fastSync bool) (err error) {
@@ -248,7 +254,7 @@ func getLocalDiskFileChangeTimeAndChecksum(sourceName string) (recordedChangeTim
 	}
 	defer f.Close()
 
-	data, err := ioutil.ReadAll(f)
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return "", "", "", errors.Wrap(err, "failed to read checksum file")
 	}
@@ -334,7 +340,7 @@ func (client *syncClient) open() error {
 	}
 
 	// drain the buffer and close the body
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -356,7 +362,7 @@ func (client *syncClient) close() {
 	resp, err := client.sendHTTPRequest("POST", "close", queries, nil)
 	if err == nil {
 		// drain the buffer and close the body
-		_, _ = ioutil.ReadAll(resp.Body)
+		_, _ = io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 	}
 }
@@ -371,7 +377,7 @@ func (client *syncClient) syncHoleInterval(holeInterval Interval) error {
 	}
 
 	// drain the buffer and close the body
-	_, _ = ioutil.ReadAll(resp.Body)
+	_, _ = io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -392,7 +398,7 @@ func (client *syncClient) getServerChecksum(batchInterval Interval) ([]byte, err
 	}
 
 	// drain the buffer and close the body
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -420,7 +426,7 @@ func (client *syncClient) getServerRecordedMetadata() ([]byte, error) {
 	}
 
 	// drain the buffer and close the body
-	metadata, err := ioutil.ReadAll(resp.Body)
+	metadata, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -441,7 +447,7 @@ func (client *syncClient) writeData(dataInterval Interval, data []byte) error {
 	}
 
 	// drain the buffer and close the body
-	_, _ = ioutil.ReadAll(resp.Body)
+	_, _ = io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {

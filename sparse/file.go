@@ -196,7 +196,7 @@ func ReadDataInterval(rw ReaderWriterAt, dataInterval Interval) ([]byte, error) 
 			return nil, errors.Wrapf(err, "failed to read interval %+v", dataInterval)
 		}
 	}
-	return data[:n], nil
+	return data, nil
 }
 
 func WriteDataInterval(file FileIoProcessor, dataInterval Interval, data []byte) error {

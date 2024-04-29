@@ -104,6 +104,7 @@ func prune(parentFileIo, childFileIo FileIoProcessor, fileSize int64, ops FileHa
 	select {
 	case err = <-mergedErrc:
 		break
+	default:
 	}
 
 	log.Debugf("Finished pruning for parent %v, child %v, size %v, elapsed %.2fs",

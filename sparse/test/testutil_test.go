@@ -117,8 +117,12 @@ func doCreateSparseFile(name string, fileSize int64, layout []Interval) {
 			offset += size
 		}
 	}
-	f.Sync()
-	f.Close()
+	if err != f.Sync() {
+		log.Fatal(err)
+	}
+	if err != f.Close() {
+		log.Fatal(err)
+	}
 }
 
 func mergeExts(exts []Extent) []Interval {
@@ -210,7 +214,9 @@ func createTestSmallFile(name string, size int, pattern []byte) {
 		}
 	}
 
-	f.Sync()
+	if err = f.Sync(); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func createNonOverlappingTestIntervals(fileSize int) (layoutFrom, layoutTo []FileInterval) {

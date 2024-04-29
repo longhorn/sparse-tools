@@ -7,6 +7,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 
 	. "github.com/longhorn/sparse-tools/sparse"
 )
@@ -241,7 +242,8 @@ func BenchmarkIO8(b *testing.B) {
 	}
 	defer f.Close()
 
-	f.Truncate(fileSize)
+	err = f.Truncate(fileSize)
+	assert.Nil(b, err)
 	log.Debug("")
 	ioTest("pilot write", b, path, 8, 32, write)
 
@@ -266,7 +268,8 @@ func BenchmarkIO8u(b *testing.B) {
 		b.Fatal("Failed to OpenFile for write", err)
 	}
 	defer f.Close()
-	f.Truncate(fileSize)
+	err = f.Truncate(fileSize)
+	assert.Nil(b, err)
 	log.Debug("")
 	ioTest("pilot write", b, path, 8, 32, writeUnaligned)
 

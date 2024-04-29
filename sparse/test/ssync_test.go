@@ -12,6 +12,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 
 	. "github.com/longhorn/sparse-tools/sparse"
 	"github.com/longhorn/sparse-tools/sparse/rest"
@@ -197,20 +198,23 @@ func RandomSync(t *testing.T, size, seed int64, srcPath, dstPath string, dstCrea
 	}
 
 	log.Infof("Syncing with directIO: %v size: %v", directIO, size)
-	go rest.TestServer(context.Background(), port, dstPath, timeout)
+	go func() {
+		err := rest.TestServer(context.Background(), port, dstPath, timeout)
+		assert.Nil(t, err)
+	}()
 	startTime := time.Now()
 	err := SyncFile(srcPath, localhost+":"+port, timeout, directIO, fastSync)
 	if err != nil {
 		t.Fatal("sync error")
 	}
-	log.Infof("Syncing done, size: %v elapsed: %.2fs", size, time.Now().Sub(startTime).Seconds())
+	log.Infof("Syncing done, size: %v elapsed: %.2fs", size, time.Since(startTime).Seconds())
 
 	startTime = time.Now()
 	err = checkSparseFiles(srcPath, dstPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	log.Infof("Checking done, size: %v elapsed: %.2fs", size, time.Now().Sub(startTime).Seconds())
+	log.Infof("Checking done, size: %v elapsed: %.2fs", size, time.Since(startTime).Seconds())
 }
 
 // generate random hole and data interval, but just return data interval slcie
@@ -260,7 +264,10 @@ func TestSyncCancellation(t *testing.T) {
 	dstName := tempFilePath(dstPrefix)
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
-	go rest.TestServer(ctx, port, dstName, timeout)
+	go func() {
+		err := rest.TestServer(ctx, port, dstName, timeout)
+		assert.Nil(t, err)
+	}()
 
 	client := http.Client{}
 

@@ -2,9 +2,11 @@ package test
 
 import (
 	"context"
-	"math/rand"
+	"crypto/rand"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 
 	. "github.com/longhorn/sparse-tools/sparse"
 	"github.com/longhorn/sparse-tools/sparse/rest"
@@ -249,7 +251,10 @@ func TestSyncAnyFile(t *testing.T) {
 
 func testSyncAnyFile(t *testing.T, src, dst string, directIO, fastSync bool) {
 	// Sync
-	go rest.TestServer(context.Background(), port, dst, timeout)
+	go func() {
+		err := rest.TestServer(context.Background(), port, dst, timeout)
+		assert.Nil(t, err)
+	}()
 	err := SyncFile(src, localhost+":"+port, timeout, directIO, fastSync)
 
 	// Verify
@@ -267,7 +272,10 @@ func testSyncAnyFile(t *testing.T, src, dst string, directIO, fastSync bool) {
 
 func testSyncAnyFileExpectFailure(t *testing.T, src, dst string, directIO, fastSync bool) {
 	// Sync
-	go rest.TestServer(context.Background(), port, dst, timeout)
+	go func() {
+		err := rest.TestServer(context.Background(), port, dst, timeout)
+		assert.Nil(t, err)
+	}()
 	err := SyncFile(src, localhost+":"+port, timeout, directIO, fastSync)
 
 	// Verify
@@ -726,7 +734,10 @@ func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval, direct
 	}
 
 	// Sync
-	go rest.TestServer(context.Background(), port, remotePath, timeout)
+	go func() {
+		err := rest.TestServer(context.Background(), port, remotePath, timeout)
+		assert.Nil(t, err)
+	}()
 	err := SyncFile(localPath, localhost+":"+port, timeout, true /* directIO */, false /* fastSync */)
 
 	// Verify
@@ -765,7 +776,10 @@ func Benchmark_1G_InitFiles(b *testing.B) {
 }
 
 func Benchmark_1G_SendFiles_Whole(b *testing.B) {
-	go rest.TestServer(context.Background(), port, remoteBigPath, timeout)
+	go func() {
+		err := rest.TestServer(context.Background(), port, remoteBigPath, timeout)
+		assert.Nil(b, err)
+	}()
 	err := SyncFile(localBigPath, localhost+":"+port, timeout, true /* directIO */, false /* fastSync */)
 
 	if err != nil {
@@ -774,7 +788,10 @@ func Benchmark_1G_SendFiles_Whole(b *testing.B) {
 }
 
 func Benchmark_1G_SendFiles_Whole_No_DirectIO(b *testing.B) {
-	go rest.TestServer(context.Background(), port, remoteBigPath, timeout)
+	go func() {
+		err := rest.TestServer(context.Background(), port, remoteBigPath, timeout)
+		assert.Nil(b, err)
+	}()
 	err := SyncFile(localBigPath, localhost+":"+port, timeout, false /* directIO */, false /* fastSync */)
 
 	if err != nil {
@@ -784,7 +801,10 @@ func Benchmark_1G_SendFiles_Whole_No_DirectIO(b *testing.B) {
 
 func Benchmark_1G_SendFiles_Diff(b *testing.B) {
 
-	go rest.TestServer(context.Background(), port, remoteBigPath, timeout)
+	go func() {
+		err := rest.TestServer(context.Background(), port, remoteBigPath, timeout)
+		assert.Nil(b, err)
+	}()
 	err := SyncFile(localBigPath, localhost+":"+port, timeout, true /* directIO */, false /* fastSync */)
 
 	if err != nil {
@@ -810,7 +830,8 @@ func TestSyncSmallSnapshot4MB(t *testing.T) {
 
 	size := 4 * 1024 * 1024
 	data := make([]byte, size)
-	rand.Read(data)
+	_, err := rand.Read(data)
+	assert.Nil(t, err)
 
 	createTestSmallFile(localPath, len(data), data)
 
@@ -847,7 +868,10 @@ func TestSyncSnapshotZeroByte(t *testing.T) {
 
 func testSyncAnyContent(t *testing.T, snapshotName string, dstFileName string, rw ReaderWriterAt, snapshotSize int64) {
 	// Sync
-	go rest.TestServer(context.Background(), port, dstFileName, timeout)
+	go func() {
+		err := rest.TestServer(context.Background(), port, dstFileName, timeout)
+		assert.Nil(t, err)
+	}()
 	err := SyncContent(snapshotName, rw, snapshotSize, localhost+":"+port, timeout, true, false)
 
 	// Verify

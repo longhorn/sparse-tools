@@ -1,23 +1,12 @@
 package stats
 
 import (
-	"os"
 	"sync"
 	"testing"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 )
-
-func tempFilePath() string {
-	// Make a temporary file path
-	f, err := os.CreateTemp("", "stat-test")
-	if err != nil {
-		log.Fatal("Failed to make temp file", err)
-	}
-	defer f.Close()
-	return f.Name()
-}
 
 var (
 	samples = make(chan dataPoint, 4)

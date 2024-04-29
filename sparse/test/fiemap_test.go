@@ -11,6 +11,7 @@ import (
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 
 	. "github.com/longhorn/sparse-tools/sparse"
 	"github.com/longhorn/sparse-tools/sparse/rest"
@@ -53,13 +54,16 @@ func TestFileSync(t *testing.T) {
 	// defer fileCleanup(dstPath)
 	log.Info("Syncing file...")
 	startTime := time.Now()
-	go rest.TestServer(context.Background(), port, dstPath, timeout)
+	go func() {
+		err := rest.TestServer(context.Background(), port, dstPath, timeout)
+		assert.Nil(t, err)
+	}()
 	time.Sleep(time.Second)
 	err := SyncFile(srcPath, localhost+":"+port, timeout, true, false)
 	if err != nil {
 		t.Fatalf("sync error: %v", err)
 	}
-	log.Infof("Syncing done, size: %v elapsed: %.2fs", testFileSize, time.Now().Sub(startTime).Seconds())
+	log.Infof("Syncing done, size: %v elapsed: %.2fs", testFileSize, time.Since(startTime).Seconds())
 
 	startTime = time.Now()
 	log.Info("Checking...")
@@ -67,7 +71,7 @@ func TestFileSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	log.Infof("Checking done, size: %v elapsed: %.2fs", testFileSize, time.Now().Sub(startTime).Seconds())
+	log.Infof("Checking done, size: %v elapsed: %.2fs", testFileSize, time.Since(startTime).Seconds())
 }
 
 func writeMultipleHolesData(filePath string, fileSize int64, dataSize int64, holeSize int64) (err error) {
@@ -83,12 +87,32 @@ func writeMultipleHolesData(filePath string, fileSize int64, dataSize int64, hol
 		return err
 	}
 	defer func() {
-		if err != nil {
-			_ = os.Remove(filePath)
+		if removeErr := os.Remove(filePath); removeErr != nil {
+			if err != nil {
+				err = errors.Wrapf(err, "failed to remove file %v: %v", filePath, removeErr)
+			} else {
+				err = removeErr
+			}
 		}
 	}()
-	defer f.Close()
-	defer f.Sync()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			if err != nil {
+				err = errors.Wrapf(err, "failed to close file %v: %v", filePath, closeErr)
+			} else {
+				err = closeErr
+			}
+		}
+	}()
+	defer func() {
+		if syncErr := f.Sync(); syncErr != nil {
+			if err != nil {
+				err = errors.Wrapf(err, "failed to sync file %v: %v", filePath, syncErr)
+			} else {
+				err = syncErr
+			}
+		}
+	}()
 	if err := f.Truncate(fileSize); err != nil {
 		return err
 	}
@@ -113,13 +137,13 @@ func writeMultipleHolesData(filePath string, fileSize int64, dataSize int64, hol
 			writtenGB := offset / GB
 			log.Infof("Wrote %vGB of %vGB time delta: %.2f time elapsed: %.2f",
 				writtenGB, sizeInGB,
-				time.Now().Sub(deltaTime).Seconds(),
-				time.Now().Sub(startTime).Seconds())
+				time.Since(deltaTime).Seconds(),
+				time.Since(startTime).Seconds())
 			deltaTime = time.Now()
 		}
 	}
 
-	log.Infof("Done creating a %vGB file with multiple hole, time elapsed: %.2f", sizeInGB, time.Now().Sub(startTime).Seconds())
+	log.Infof("Done creating a %vGB file with multiple hole, time elapsed: %.2f", sizeInGB, time.Since(startTime).Seconds())
 	return nil
 }
 

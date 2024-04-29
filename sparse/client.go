@@ -198,6 +198,7 @@ func (client *syncClient) syncContent() error {
 	select {
 	case err = <-mergedErrc:
 		break
+	default:
 	}
 	return err
 }

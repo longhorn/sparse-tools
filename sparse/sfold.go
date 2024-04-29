@@ -98,7 +98,7 @@ func coalesce(parentFileIo, childFileIo FileIoProcessor, fileSize int64, ops Fil
 					size = int(segment.End - offset)
 				}
 				// read a batch from child
-				n, err := childFileIo.ReadAt(buffer[:size], offset)
+				_, err := childFileIo.ReadAt(buffer[:size], offset)
 				if err != nil {
 					return errors.Wrapf(err, "failed to read childFile filename: %v, size: %v, at: %v",
 						childFileIo.Name(), size, offset)
@@ -130,6 +130,7 @@ func coalesce(parentFileIo, childFileIo FileIoProcessor, fileSize int64, ops Fil
 	select {
 	case err = <-mergedErrc:
 		break
+	default:
 	}
 
 	log.Debugf("Finished fold for parent %v, child %v, size %v, elapsed %.2fs",

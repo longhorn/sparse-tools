@@ -23,7 +23,7 @@ RUN wget -O - https://storage.googleapis.com/golang/go1.22.2.linux-${!GOLANG_ARC
 RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.55.2
 
 ENV DAPPER_SOURCE /go/src/github.com/longhorn/sparse-tools
-ENV DAPPER_OUTPUT ./bin
+ENV DAPPER_OUTPUT ./bin coverage.out
 ENV DAPPER_DOCKER_SOCKET true
 ENV DAPPER_ENV IMAGE REPO VERSION TAG
 ENV HOME ${DAPPER_SOURCE}

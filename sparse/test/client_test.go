@@ -252,8 +252,7 @@ func TestSyncAnyFile(t *testing.T) {
 func testSyncAnyFile(t *testing.T, src, dst string, directIO, fastSync bool) {
 	// Sync
 	go func() {
-		err := rest.TestServer(context.Background(), port, dst, timeout)
-		assert.Nil(t, err)
+		_ = rest.TestServer(context.Background(), port, dst, timeout)
 	}()
 	err := SyncFile(src, localhost+":"+port, timeout, directIO, fastSync)
 

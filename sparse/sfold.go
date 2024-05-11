@@ -127,11 +127,7 @@ func coalesce(parentFileIo, childFileIo FileIoProcessor, fileSize int64, ops Fil
 	// the below select will exit once all error channels are closed, or a single
 	// channel has run into an error, which will lead to the ctx being cancelled
 	mergedErrc := mergeErrorChannels(ctx, errorChannels...)
-	select {
-	case err = <-mergedErrc:
-		break
-	default:
-	}
+	err = <-mergedErrc
 
 	log.Debugf("Finished fold for parent %v, child %v, size %v, elapsed %.2fs",
 		parentFileIo.Name(), childFileIo.Name(), fileSize,

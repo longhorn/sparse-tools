@@ -41,9 +41,8 @@ func syncLocalContent(sourceFilePath, targetFilePath string, fileSize int64) (er
 	}()
 
 	syncBatchSize := defaultSyncBatchSize
-	numSyncWorkers := defaultSyncWorkerCount
 
-	local, err := newSyncLocal(sourceFilePath, targetFilePath, fileSize, syncBatchSize, numSyncWorkers)
+	local, err := newSyncLocal(sourceFilePath, targetFilePath, fileSize, syncBatchSize)
 	if err != nil {
 		return err
 	}
@@ -73,11 +72,10 @@ type syncLocal struct {
 	sourceFileIo *DirectFileIoProcessor
 	targetFileIo *DirectFileIoProcessor
 
-	numSyncWorkers int
-	syncBatchSize  int64
+	syncBatchSize int64
 }
 
-func newSyncLocal(sourceFilePath, targetFilePath string, fileSize, syncBatchSize int64, numSyncWorkers int) (*syncLocal, error) {
+func newSyncLocal(sourceFilePath, targetFilePath string, fileSize, syncBatchSize int64) (*syncLocal, error) {
 	sourceFileIo, err := NewDirectFileIoProcessor(sourceFilePath, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
@@ -102,7 +100,6 @@ func newSyncLocal(sourceFilePath, targetFilePath string, fileSize, syncBatchSize
 		sourceFileIo:   sourceFileIo,
 		targetFileIo:   targetFileIo,
 		syncBatchSize:  syncBatchSize,
-		numSyncWorkers: numSyncWorkers,
 	}, nil
 }
 
@@ -121,9 +118,7 @@ func (local *syncLocal) syncContent() error {
 	}
 
 	errorChannels := []<-chan error{errChannel}
-	for i := 0; i < local.numSyncWorkers; i++ {
-		errorChannels = append(errorChannels, processFileIntervals(ctx, fileIntervalChannel, local.processSegment))
-	}
+	errorChannels = append(errorChannels, processFileIntervals(ctx, fileIntervalChannel, local.processSegment))
 	// the below select will exit once all error channels are closed, or a single
 	// channel has run into an error, which will lead to the ctx being cancelled
 	mergedErrc := mergeErrorChannels(ctx, errorChannels...)

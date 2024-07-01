@@ -4,20 +4,14 @@ import (
 	"os"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/longhorn/sparse-tools/types"
 	"github.com/stretchr/testify/require"
 )
 
-func randomID(randomIDLenth int) string {
-	id := uuid.New().String()
-	return id[:randomIDLenth]
-}
-
 func TestSetSnapshotHashInfoToChecksumFile(t *testing.T) {
 	assert := require.New(t)
 
-	checksumFileName := randomID(8) + types.DiskChecksumSuffix
+	checksumFileName := RandomID(8) + types.DiskChecksumSuffix
 	expectedInfo := &types.SnapshotHashInfo{
 		Method:     "crc64",
 		Checksum:   "abc",

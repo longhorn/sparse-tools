@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -54,9 +55,13 @@ func TestFileSync(t *testing.T) {
 	// defer fileCleanup(dstPath)
 	log.Info("Syncing file...")
 	startTime := time.Now()
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		err := rest.TestServer(context.Background(), port, dstPath, timeout)
-		assert.Nil(t, err)
+		assert.True(t, err == nil || err.Error() == "http: Server closed", "Unexpected error: %v", err)
 	}()
 	time.Sleep(time.Second)
 	err := SyncFile(srcPath, localhost+":"+port, timeout, true, false)
@@ -64,6 +69,7 @@ func TestFileSync(t *testing.T) {
 		t.Fatalf("sync error: %v", err)
 	}
 	log.Infof("Syncing done, size: %v elapsed: %.2fs", testFileSize, time.Since(startTime).Seconds())
+	wg.Wait()
 
 	startTime = time.Now()
 	log.Info("Checking...")

@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -198,16 +199,23 @@ func RandomSync(t *testing.T, size, seed int64, srcPath, dstPath string, dstCrea
 	}
 
 	log.Infof("Syncing with directIO: %v size: %v", directIO, size)
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		err := rest.TestServer(context.Background(), port, dstPath, timeout)
-		assert.Nil(t, err)
+		assert.True(t, err == nil || err.Error() == "http: Server closed", "Unexpected error: %v", err)
 	}()
+
 	startTime := time.Now()
 	err := SyncFile(srcPath, localhost+":"+port, timeout, directIO, fastSync)
 	if err != nil {
 		t.Fatal("sync error")
 	}
 	log.Infof("Syncing done, size: %v elapsed: %.2fs", size, time.Since(startTime).Seconds())
+
+	wg.Wait()
 
 	startTime = time.Now()
 	err = checkSparseFiles(srcPath, dstPath)
@@ -264,9 +272,13 @@ func TestSyncCancellation(t *testing.T) {
 	dstName := tempFilePath(dstPrefix)
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		err := rest.TestServer(ctx, port, dstName, timeout)
-		assert.Nil(t, err)
+		assert.True(t, err == nil || err.Error() == "http: Server closed", "Unexpected error: %v", err)
 	}()
 
 	client := http.Client{}
@@ -311,4 +323,5 @@ func TestSyncCancellation(t *testing.T) {
 	if httpErr == nil || !strings.Contains(httpErr.Error(), "connection refused") {
 		t.Fatalf("Unexpected error: %v", httpErr)
 	}
+	wg.Wait()
 }

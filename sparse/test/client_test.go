@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -251,10 +252,19 @@ func TestSyncAnyFile(t *testing.T) {
 
 func testSyncAnyFile(t *testing.T, src, dst string, directIO, fastSync bool) {
 	// Sync
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		_ = rest.TestServer(context.Background(), port, dst, timeout)
+		defer wg.Done()
+
+		err := rest.TestServer(context.Background(), port, dst, timeout)
+		// http server is closed by the client after file transfer is done, so the error
+		// "http: Server closed" is expected.
+		assert.True(t, err == nil || err.Error() == "http: Server closed", "Unexpected error: %v", err)
 	}()
 	err := SyncFile(src, localhost+":"+port, timeout, directIO, fastSync)
+
+	wg.Wait()
 
 	// Verify
 	if err != nil {
@@ -271,11 +281,19 @@ func testSyncAnyFile(t *testing.T, src, dst string, directIO, fastSync bool) {
 
 func testSyncAnyFileExpectFailure(t *testing.T, src, dst string, directIO, fastSync bool) {
 	// Sync
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		err := rest.TestServer(context.Background(), port, dst, timeout)
-		assert.Nil(t, err)
+		// http server is closed by the client after file transfer is done, so the error
+		// "http: Server closed" is expected.
+		assert.True(t, err == nil || err.Error() == "http: Server closed", "Unexpected error: %v", err)
 	}()
 	err := SyncFile(src, localhost+":"+port, timeout, directIO, fastSync)
+
+	wg.Wait()
 
 	// Verify
 	if err == nil {
@@ -733,11 +751,19 @@ func testSyncFile(t *testing.T, layoutLocal, layoutRemote []FileInterval, direct
 	}
 
 	// Sync
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		err := rest.TestServer(context.Background(), port, remotePath, timeout)
-		assert.Nil(t, err)
+		// http server is closed by the client after file transfer is done, so the error
+		// "http: Server closed" is expected.
+		assert.True(t, err == nil || err.Error() == "http: Server closed", "Unexpected error: %v", err)
 	}()
 	err := SyncFile(localPath, localhost+":"+port, timeout, true /* directIO */, false /* fastSync */)
+
+	wg.Wait()
 
 	// Verify
 	if err != nil {
@@ -775,11 +801,20 @@ func Benchmark_1G_InitFiles(b *testing.B) {
 }
 
 func Benchmark_1G_SendFiles_Whole(b *testing.B) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+
 	go func() {
+		defer wg.Done()
+
 		err := rest.TestServer(context.Background(), port, remoteBigPath, timeout)
-		assert.Nil(b, err)
+		// http server is closed by the client after file transfer is done, so the error
+		// "http: Server closed" is expected.
+		assert.True(b, err == nil || err.Error() == "http: Server closed", "Unexpected error: %v", err)
 	}()
 	err := SyncFile(localBigPath, localhost+":"+port, timeout, true /* directIO */, false /* fastSync */)
+
+	wg.Wait()
 
 	if err != nil {
 		b.Fatal("sync error")
@@ -787,11 +822,19 @@ func Benchmark_1G_SendFiles_Whole(b *testing.B) {
 }
 
 func Benchmark_1G_SendFiles_Whole_No_DirectIO(b *testing.B) {
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		err := rest.TestServer(context.Background(), port, remoteBigPath, timeout)
-		assert.Nil(b, err)
+		// http server is closed by the client after file transfer is done, so the error
+		// "http: Server closed" is expected.
+		assert.True(b, err == nil || err.Error() == "http: Server closed", "Unexpected error: %v", err)
 	}()
 	err := SyncFile(localBigPath, localhost+":"+port, timeout, false /* directIO */, false /* fastSync */)
+
+	wg.Wait()
 
 	if err != nil {
 		b.Fatal("sync error")
@@ -799,12 +842,19 @@ func Benchmark_1G_SendFiles_Whole_No_DirectIO(b *testing.B) {
 }
 
 func Benchmark_1G_SendFiles_Diff(b *testing.B) {
-
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		err := rest.TestServer(context.Background(), port, remoteBigPath, timeout)
-		assert.Nil(b, err)
+		// http server is closed by the client after file transfer is done, so the error
+		// "http: Server closed" is expected.
+		assert.True(b, err == nil || err.Error() == "http: Server closed", "Unexpected error: %v", err)
 	}()
 	err := SyncFile(localBigPath, localhost+":"+port, timeout, true /* directIO */, false /* fastSync */)
+
+	wg.Wait()
 
 	if err != nil {
 		b.Fatal("sync error")
@@ -867,11 +917,19 @@ func TestSyncSnapshotZeroByte(t *testing.T) {
 
 func testSyncAnyContent(t *testing.T, snapshotName string, dstFileName string, rw ReaderWriterAt, snapshotSize int64) {
 	// Sync
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		err := rest.TestServer(context.Background(), port, dstFileName, timeout)
-		assert.Nil(t, err)
+		// http server is closed by the client after file transfer is done, so the error
+		// "http: Server closed" is expected.
+		assert.True(t, err == nil || err.Error() == "http: Server closed", "Unexpected error: %v", err)
 	}()
 	err := SyncContent(snapshotName, rw, snapshotSize, localhost+":"+port, timeout, true, false)
+
+	wg.Wait()
 
 	// Verify
 	if err != nil {

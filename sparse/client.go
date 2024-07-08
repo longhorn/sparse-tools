@@ -157,6 +157,7 @@ func SyncContent(sourceName string, rw ReaderWriterAt, fileSize int64, remote st
 	if fastSync && filepath.Ext(client.sourceName) == types.SnapshotDiskSuffix {
 		if client.isLocalAndRemoteDiskFilesIdentical() {
 			log.Infof("Skipped syncing file %v", client.sourceName)
+			err = nil // the err could be set via getLocalDiskFileChangeTimeAndChecksum() and would be return via defer()
 			return nil
 		}
 	}

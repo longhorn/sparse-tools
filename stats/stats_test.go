@@ -46,8 +46,8 @@ func Test1(t *testing.T) {
 	log.SetLevel(log.ErrorLevel)
 	resetStats(4)
 
-	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(2000), "", OpRead, 1024, true)
+	Sample(time.Now(), time.Duration(1000), "", 0, OpRead, 0, 1024, true)
+	Sample(time.Now(), time.Duration(2000), "", 0, OpRead, 0, 1024, true)
 
 	<-Process(appendSample)
 	if !verifySampleDurations(
@@ -63,8 +63,8 @@ func Test2(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
-	Sample(time.Now(), time.Duration(1000), "replica-a", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(2000), "replica-b", OpRead, 1024, false)
+	Sample(time.Now(), time.Duration(1000), "replica-a", 0, OpRead, 0, 1024, true)
+	Sample(time.Now(), time.Duration(2000), "replica-b", 0, OpRead, 0, 1024, false)
 
 	<-Print()
 }
@@ -75,11 +75,11 @@ func Test3(t *testing.T) {
 	for _, op := range []SampleOp{OpRead, OpWrite, OpUnmap} {
 		resetStats(4)
 
-		Sample(time.Now(), time.Duration(1000), "", op, 1024, true)
-		Sample(time.Now(), time.Duration(2000), "", op, 1024, true)
-		Sample(time.Now(), time.Duration(3000), "", op, 1024, true)
-		Sample(time.Now(), time.Duration(4000), "", op, 1024, true)
-		Sample(time.Now(), time.Duration(5000), "", op, 1024, true)
+		Sample(time.Now(), time.Duration(1000), "", 0, op, 0, 1024, true)
+		Sample(time.Now(), time.Duration(2000), "", 0, op, 0, 1024, true)
+		Sample(time.Now(), time.Duration(3000), "", 0, op, 0, 1024, true)
+		Sample(time.Now(), time.Duration(4000), "", 0, op, 0, 1024, true)
+		Sample(time.Now(), time.Duration(5000), "", 0, op, 0, 1024, true)
 		<-Process(appendSample)
 		if !verifySampleDurations(
 			[]model{
@@ -91,7 +91,7 @@ func Test3(t *testing.T) {
 			t.Fatal("sample mismatch:", samples)
 		}
 
-		Sample(time.Now(), time.Duration(6000), "", OpPing, 1024, true)
+		Sample(time.Now(), time.Duration(6000), "", 0, OpPing, 0, 1024, true)
 		<-Process(appendSample)
 		if !verifySampleDurations([]model{{6000, 1024, false}}) {
 			t.Fatal("sample mismatch:", samples)
@@ -103,11 +103,11 @@ func Test4(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
-	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
+	Sample(time.Now(), time.Duration(1000), "", 0, OpRead, 0, 1024, true)
 	var pending []OpID
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpRead, 2048))
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpWrite, 4096))
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpUnmap, 8192))
+	pending = append(pending, InsertPendingOp(time.Now(), "", 0, OpRead, 0, 2048))
+	pending = append(pending, InsertPendingOp(time.Now(), "", 0, OpWrite, 0, 4096))
+	pending = append(pending, InsertPendingOp(time.Now(), "", 0, OpUnmap, 0, 8192))
 	err := RemovePendingOp(pending[0], true)
 	if err != nil {
 		t.Fatal(err)
@@ -132,15 +132,15 @@ func Test5(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
-	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
+	Sample(time.Now(), time.Duration(1000), "", 0, OpRead, 0, 1024, true)
 	var pending []OpID
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpRead, 2048))
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpWrite, 4096))
+	pending = append(pending, InsertPendingOp(time.Now(), "", 0, OpRead, 0, 2048))
+	pending = append(pending, InsertPendingOp(time.Now(), "", 0, OpWrite, 0, 4096))
 	err := RemovePendingOp(pending[0], true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpPing, 8192))
+	pending = append(pending, InsertPendingOp(time.Now(), "", 0, OpPing, 0, 8192))
 
 	<-Process(appendSample) // 1kB, 2kB
 	if !verifySampleDurations(
@@ -175,9 +175,9 @@ func Test6(t *testing.T) {
 	resetStats(4)
 
 	var pending []OpID
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpRead, 2048))
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpWrite, 4096))
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpUnmap, 1024))
+	pending = append(pending, InsertPendingOp(time.Now(), "", 0, OpRead, 0, 2048))
+	pending = append(pending, InsertPendingOp(time.Now(), "", 0, OpWrite, 0, 4096))
+	pending = append(pending, InsertPendingOp(time.Now(), "", 0, OpUnmap, 0, 1024))
 
 	err := RemovePendingOp(pending[0], true)
 	if err != nil {
@@ -187,7 +187,7 @@ func Test6(t *testing.T) {
 		t.Fatal("pendingOpsFreeSlot stack failure", pendingOpsFreeSlot)
 	}
 
-	pending = append(pending, InsertPendingOp(time.Now(), "", OpPing, 8192))
+	pending = append(pending, InsertPendingOp(time.Now(), "", 0, OpPing, 0, 8192))
 	if len(pendingOpsFreeSlot) != 0 {
 		t.Fatal("pendingOpsFreeSlot stack failure", pendingOpsFreeSlot)
 	}
@@ -216,10 +216,10 @@ func Test7(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
-	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(2000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(3000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(4000), "", OpRead, 1024, true)
+	Sample(time.Now(), time.Duration(1000), "", 0, OpRead, 0, 1024, true)
+	Sample(time.Now(), time.Duration(2000), "", 0, OpRead, 0, 1024, true)
+	Sample(time.Now(), time.Duration(3000), "", 0, OpRead, 0, 1024, true)
+	Sample(time.Now(), time.Duration(4000), "", 0, OpRead, 0, 1024, true)
 
 	<-ProcessLimited(2, appendSample)
 	if !verifySampleDurations(
@@ -236,10 +236,10 @@ func Test8(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
-	Sample(time.Now(), time.Duration(1000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(2000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(3000), "", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(4000), "", OpRead, 1024, true)
+	Sample(time.Now(), time.Duration(1000), "", 0, OpRead, 0, 1024, true)
+	Sample(time.Now(), time.Duration(2000), "", 0, OpRead, 0, 1024, true)
+	Sample(time.Now(), time.Duration(3000), "", 0, OpRead, 0, 1024, true)
+	Sample(time.Now(), time.Duration(4000), "", 0, OpRead, 0, 1024, true)
 
 	<-ProcessLimited(0, appendSample)
 	if !verifySampleDurations(
@@ -258,10 +258,10 @@ func Test9(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 	resetStats(4)
 
-	Sample(time.Now(), time.Duration(1000), "a", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(2000), "b", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(3000), "a", OpRead, 1024, true)
-	Sample(time.Now(), time.Duration(4000), "b", OpRead, 1024, true)
+	Sample(time.Now(), time.Duration(1000), "a", 0, OpRead, 0, 1024, true)
+	Sample(time.Now(), time.Duration(2000), "b", 0, OpRead, 0, 1024, true)
+	Sample(time.Now(), time.Duration(3000), "a", 0, OpRead, 0, 1024, true)
+	Sample(time.Now(), time.Duration(4000), "b", 0, OpRead, 0, 1024, true)
 
 	<-Process(appendSample)
 	sample := <-samples

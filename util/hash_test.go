@@ -20,7 +20,9 @@ func TestSetSnapshotHashInfoToChecksumFile(t *testing.T) {
 
 	err := SetSnapshotHashInfoToChecksumFile(checksumFileName, expectedInfo)
 	assert.Nil(err)
-	defer os.RemoveAll(checksumFileName)
+	defer func() {
+		_ = os.RemoveAll(checksumFileName)
+	}()
 
 	info, err := GetSnapshotHashInfoFromChecksumFile(checksumFileName)
 	assert.Nil(err)

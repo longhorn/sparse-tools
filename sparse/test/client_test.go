@@ -888,7 +888,9 @@ func TestSyncSmallSnapshot4MB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer fileIo.Close()
+	defer func() {
+		_ = fileIo.Close()
+	}()
 
 	testSyncAnyContent(t, localPath, remotePath, fileIo, int64(size))
 }
@@ -910,7 +912,9 @@ func TestSyncSnapshotZeroByte(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer fileIo.Close()
+	defer func() {
+		_ = fileIo.Close()
+	}()
 
 	testSyncAnyContent(t, localPath, remotePath, fileIo, int64(size))
 }

@@ -34,7 +34,7 @@ func filesCleanup(src, dst string) {
 }
 
 func fileCleanup(path string) {
-	os.Remove(path)
+	_ = os.Remove(path)
 }
 
 func tempFilePath(prefix string) string {
@@ -43,7 +43,9 @@ func tempFilePath(prefix string) string {
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 	return f.Name()
 }
 
@@ -55,7 +57,9 @@ func tempBigFilePath(prefix string) string {
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 	return f.Name()
 }
 
@@ -151,13 +155,17 @@ func checkSparseFiles(srcPath string, dstPath string) error {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer srcFileIo.Close()
+	defer func() {
+		_ = srcFileIo.Close()
+	}()
 
 	dstFileIo, err := NewDirectFileIoProcessor(dstPath, os.O_RDWR, 0666, true)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer dstFileIo.Close()
+	defer func() {
+		_ = dstFileIo.Close()
+	}()
 
 	// ensure contents are equal
 	equal := filesAreEqual(srcPath, dstPath)
@@ -197,7 +205,9 @@ func createTestSmallFile(name string, size int, pattern []byte) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	if size == 0 {
 		return // empty file

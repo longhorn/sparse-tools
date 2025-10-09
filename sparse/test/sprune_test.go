@@ -145,20 +145,26 @@ func generatePrunedFile(parent []FileInterval, child []FileInterval, parentPath 
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer parentFile.Close()
+	defer func() {
+		_ = parentFile.Close()
+	}()
 
 	childFile, err := os.OpenFile(childPath, os.O_RDONLY, 0666)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer childFile.Close()
+	defer func() {
+		_ = childFile.Close()
+	}()
 
 	// create expectedPath file
 	expectedFile, err := os.Create(expectedPath)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer expectedFile.Close()
+	defer func() {
+		_ = expectedFile.Close()
+	}()
 
 	if err = expectedFile.Truncate(parent[len(parent)-1].End); err != nil {
 		log.Fatal(err)
@@ -166,7 +172,7 @@ func generatePrunedFile(parent []FileInterval, child []FileInterval, parentPath 
 
 	var interval FileInterval
 	for i := 0; i < len(parent); i++ {
-		if !(child[i].Kind == SparseHole && parent[i].Kind == SparseData) {
+		if child[i].Kind != SparseHole || parent[i].Kind != SparseData {
 			continue
 		}
 		interval = parent[i]

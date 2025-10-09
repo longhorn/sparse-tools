@@ -294,7 +294,7 @@ func TestSyncCancellation(t *testing.T) {
 		resp1, err := client.Do(req1)
 		httpErr = err
 		if httpErr == nil {
-			resp1.Body.Close()
+			_ = resp1.Body.Close()
 			break
 		}
 		time.Sleep(retryInterval)
@@ -313,7 +313,7 @@ func TestSyncCancellation(t *testing.T) {
 		resp2, err := client.Do(req2)
 		httpErr = err
 		if httpErr == nil {
-			resp2.Body.Close()
+			_ = resp2.Body.Close()
 		}
 		if httpErr != nil && strings.Contains(httpErr.Error(), "connection refused") {
 			break

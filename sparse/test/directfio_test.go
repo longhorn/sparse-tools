@@ -18,7 +18,9 @@ func tempFilePathDirectIo() string {
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 	return f.Name()
 }
 
@@ -30,7 +32,9 @@ func tempBigFilePathDirectIo() string {
 	if err != nil {
 		log.Fatal("Failed to make temp file", err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 	return f.Name()
 }
 
@@ -63,7 +67,9 @@ func TestDirectFileIO1(t *testing.T) {
 		if err != nil {
 			t.Fatal("Failed to OpenFile for write", err)
 		}
-		defer fileIo.Close()
+		defer func() {
+			_ = fileIo.Close()
+		}()
 
 		_, err = fileIo.WriteAt(data1, int64(blocks*BlockSize))
 		if err != nil {
@@ -78,7 +84,9 @@ func TestDirectFileIO1(t *testing.T) {
 		if err != nil {
 			t.Fatal("Failed to OpenFile for read", err)
 		}
-		defer fileIo.Close()
+		defer func() {
+			_ = fileIo.Close()
+		}()
 
 		_, err = fileIo.ReadAt(data2, int64(blocks*BlockSize))
 		if err != nil {
@@ -107,7 +115,9 @@ func TestDirectFileIO2(t *testing.T) {
 		if err != nil {
 			t.Fatal("Failed to OpenFile for write", err)
 		}
-		defer fileIo.Close()
+		defer func() {
+			_ = fileIo.Close()
+		}()
 
 		_, err = fileIo.WriteAt(data1, int64(blocks*BlockSize))
 		if err != nil {
@@ -122,7 +132,9 @@ func TestDirectFileIO2(t *testing.T) {
 		if err != nil {
 			t.Fatal("Failed to OpenFile for read", err)
 		}
-		defer fileIo.Close()
+		defer func() {
+			_ = fileIo.Close()
+		}()
 
 		_, err = fileIo.ReadAt(data2, int64(blocks*BlockSize))
 		if err != nil {
@@ -148,7 +160,9 @@ func write(b *testing.B, path string, done chan<- bool, batchSize int, offset, s
 	if err != nil {
 		b.Fatal("Failed to OpenFile for write", err)
 	}
-	defer fileIo.Close()
+	defer func() {
+		_ = fileIo.Close()
+	}()
 
 	for pos := offset; pos < offset+size; pos += int64(batchSize) {
 		_, err = fileIo.WriteAt(data, pos)
@@ -166,7 +180,9 @@ func read(b *testing.B, path string, done chan<- bool, batchSize int, offset, si
 	if err != nil {
 		b.Fatal("Failed to OpenFile for read", err)
 	}
-	defer fileIo.Close()
+	defer func() {
+		_ = fileIo.Close()
+	}()
 
 	for pos := offset; pos < offset+size; pos += int64(batchSize) {
 		_, err = fileIo.ReadAt(data, pos)
@@ -185,7 +201,9 @@ func writeUnaligned(b *testing.B, path string, done chan<- bool, batchSize int, 
 	if err != nil {
 		b.Fatal("Failed to OpenFile for write", err)
 	}
-	defer fileIo.Close()
+	defer func() {
+		_ = fileIo.Close()
+	}()
 
 	for pos := offset; pos < offset+size; pos += int64(batchSize) {
 		_, err = fileIo.WriteAt(data, pos)
@@ -203,7 +221,9 @@ func readUnaligned(b *testing.B, path string, done chan<- bool, batchSize int, o
 	if err != nil {
 		b.Fatal("Failed to OpenFile for read", err)
 	}
-	defer fileIo.Close()
+	defer func() {
+		_ = fileIo.Close()
+	}()
 
 	for pos := offset; pos < offset+size; pos += int64(batchSize) {
 		_, err = fileIo.ReadAt(data, pos)
@@ -240,7 +260,9 @@ func BenchmarkIO8(b *testing.B) {
 	if err != nil {
 		b.Fatal("Failed to OpenFile for write", err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	err = f.Truncate(fileSize)
 	assert.Nil(b, err)
@@ -267,7 +289,9 @@ func BenchmarkIO8u(b *testing.B) {
 	if err != nil {
 		b.Fatal("Failed to OpenFile for write", err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 	err = f.Truncate(fileSize)
 	assert.Nil(b, err)
 	log.Debug("")

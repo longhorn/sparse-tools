@@ -3,7 +3,7 @@ set -e
 
 trap "chown -R $DAPPER_UID:$DAPPER_GID ." exit
 
-export GOFLAGS=-mod=vendor
+export GOFLAGS=-mod=mod
 
 mkdir -p bin
 if [ -e ./scripts/$1 ]; then

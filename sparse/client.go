@@ -28,6 +28,20 @@ const (
 	defaultSyncBatchSize   = 512 * Blocks
 )
 
+// retryConfig holds retry behavior configuration
+type retryConfig struct {
+	maxRetries     int
+	retryBaseDelay time.Duration
+	retryMaxDelay  time.Duration
+}
+
+// defaultRetryConfig is the production retry configuration
+var defaultRetryConfig = retryConfig{
+	maxRetries:     5,
+	retryBaseDelay: 2 * time.Second,
+	retryMaxDelay:  30 * time.Second,
+}
+
 type DataSyncClient interface {
 	open() error
 	close()
@@ -54,6 +68,10 @@ type syncClient struct {
 
 	httpClient        *http.Client
 	httpClientTimeout int
+
+	retry retryConfig
+
+	ctx context.Context
 }
 
 type ReaderWriterAt interface {
@@ -68,6 +86,9 @@ func newHTTPClient(httpClientTimeout int) *http.Client {
 	t.MaxIdleConns = 100
 	t.MaxConnsPerHost = 100
 	t.MaxIdleConnsPerHost = 100
+	t.ResponseHeaderTimeout = time.Duration(httpClientTimeout) * time.Second
+	t.DisableKeepAlives = false
+	t.IdleConnTimeout = 120 * time.Second
 
 	return &http.Client{
 		Timeout:   time.Duration(httpClientTimeout) * time.Second,
@@ -76,7 +97,8 @@ func newHTTPClient(httpClientTimeout int) *http.Client {
 }
 
 func newSyncClient(remote string, sourceName string, size int64, rw ReaderWriterAt, directIO bool, httpClientTimeout int,
-	recordedChangeTime, recordedChecksumMethod, recordedChecksum string, syncBatchSize int64, numSyncWorkers int) *syncClient {
+	recordedChangeTime, recordedChecksumMethod, recordedChecksum string, syncBatchSize int64, numSyncWorkers int,
+) *syncClient {
 	return &syncClient{
 		remote:     remote,
 		sourceName: sourceName,
@@ -92,6 +114,8 @@ func newSyncClient(remote string, sourceName string, size int64, rw ReaderWriter
 
 		syncBatchSize:  syncBatchSize,
 		numSyncWorkers: numSyncWorkers,
+
+		retry: defaultRetryConfig,
 	}
 }
 
@@ -155,6 +179,11 @@ func SyncContent(sourceName string, rw ReaderWriterAt, fileSize int64, remote st
 
 	client := newSyncClient(remote, sourceName, fileSize, rw, directIO, httpClientTimeout,
 		recordedChangeTime, recordedChecksumMethod, recordedChecksum, syncBatchSize, numSyncWorkers)
+
+	// Set context early so that fast-sync check is also cancellable on function return
+	ctx, cancel := context.WithCancel(context.Background())
+	client.ctx = ctx
+	defer cancel()
 	defer client.close() // kill the server no matter success or not, best effort
 
 	if fastSync && filepath.Ext(client.sourceName) == types.SnapshotDiskSuffix {
@@ -183,8 +212,8 @@ func (client *syncClient) syncContent() error {
 		return errors.Wrap(err, "failed to open")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Context is already set in SyncContent()
+	ctx := client.ctx
 
 	fileIntervalChannel, errChannel, err := client.rw.GetDataLayout(ctx)
 	if err != nil {
@@ -295,9 +324,9 @@ func (client *syncClient) sendHTTPRequest(method string, action string, queries 
 	var req *http.Request
 	var err error
 	if data != nil {
-		req, err = http.NewRequest(method, url, bytes.NewBuffer(data))
+		req, err = http.NewRequestWithContext(client.ctx, method, url, bytes.NewBuffer(data))
 	} else {
-		req, err = http.NewRequest(method, url, nil)
+		req, err = http.NewRequestWithContext(client.ctx, method, url, nil)
 	}
 	if err != nil {
 		return nil, err
@@ -314,6 +343,106 @@ func (client *syncClient) sendHTTPRequest(method string, action string, queries 
 	log.Tracef("method: %s, url with query string: %s, data len: %d", method, req.URL.String(), len(data))
 
 	return httpClient.Do(req)
+}
+
+// closeResponse drains and closes the response body
+func closeResponse(resp *http.Response) {
+	if resp == nil || resp.Body == nil {
+		return
+	}
+	// Drain up to a reasonable limit to allow connection reuse without unbounded memory usage.
+	const maxDrainBytes = 1 << 20 // 1 MiB
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDrainBytes))
+	_ = resp.Body.Close()
+}
+
+// isClientError returns true if the response is a 3xx redirect or 4xx client error
+// that should not be retried. Note: 429 (Too Many Requests) is excluded as it
+// represents a transient rate-limiting condition that benefits from retry with backoff.
+func isClientError(resp *http.Response) bool {
+	if resp == nil {
+		return false
+	}
+	// 3xx redirects and most 4xx client errors should not be retried
+	// Exception: 429 (Too Many Requests) is transient and should be retried
+	return resp.StatusCode >= 300 && resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests
+}
+
+// waitWithContext waits for the specified delay or until context is cancelled
+func (client *syncClient) waitWithContext(delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	select {
+	case <-client.ctx.Done():
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		return client.ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (client *syncClient) sendHTTPRequestWithRetry(method string, action string, queries map[string]string, data []byte) (*http.Response, error) {
+	cfg := client.retry
+
+	var resp *http.Response
+	var err error
+	delay := cfg.retryBaseDelay
+	totalAttempts := cfg.maxRetries + 1
+
+	for attempt := 0; attempt <= cfg.maxRetries; attempt++ {
+		resp, err = client.sendHTTPRequest(method, action, queries, data)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			return resp, nil
+		}
+
+		// Don't retry client errors (4xx) or redirects (3xx) — only server/network errors are transient
+		if err == nil && isClientError(resp) {
+			closeResponse(resp)
+			return resp, fmt.Errorf("request %s %s failed with client error %d (%s)",
+				method, action, resp.StatusCode, http.StatusText(resp.StatusCode))
+		}
+
+		if attempt < cfg.maxRetries {
+			closeResponse(resp)
+
+			if err != nil {
+				log.Warnf("Request %s %s failed (attempt %d/%d): %v, retrying in %v...",
+					method, action, attempt+1, totalAttempts, err, delay)
+			} else {
+				log.Warnf("Request %s %s returned status %d (attempt %d/%d), retrying in %v...",
+					method, action, resp.StatusCode, attempt+1, totalAttempts, delay)
+			}
+
+			if waitErr := client.waitWithContext(delay); waitErr != nil {
+				// resp has already been closed above; do not return a closed response
+				return nil, waitErr
+			}
+
+			delay *= 2
+			if delay > cfg.retryMaxDelay {
+				delay = cfg.retryMaxDelay
+			}
+		}
+	}
+
+	if err != nil {
+		log.Errorf("Request %s %s failed after %d retries: %v", method, action, cfg.maxRetries, err)
+		closeResponse(resp)
+		return resp, err
+	}
+
+	if resp != nil && resp.StatusCode != http.StatusOK {
+		log.Errorf("Request %s %s returned status %d after %d retries", method, action, resp.StatusCode, cfg.maxRetries)
+		closeResponse(resp)
+		return resp, fmt.Errorf("request %s %s failed with status %d (%s) after %d retries",
+			method, action, resp.StatusCode, http.StatusText(resp.StatusCode), cfg.maxRetries)
+	}
+
+	return resp, nil
 }
 
 func (client *syncClient) open() error {
@@ -374,7 +503,7 @@ func (client *syncClient) syncHoleInterval(holeInterval Interval) error {
 	queries := make(map[string]string)
 	queries["begin"] = strconv.FormatInt(holeInterval.Begin, 10)
 	queries["end"] = strconv.FormatInt(holeInterval.End, 10)
-	resp, err := client.sendHTTPRequest("POST", "sendHole", queries, nil)
+	resp, err := client.sendHTTPRequestWithRetry("POST", "sendHole", queries, nil)
 	if err != nil {
 		return errors.Wrapf(err, "failed to send hole interval %+v", holeInterval)
 	}
@@ -383,11 +512,6 @@ func (client *syncClient) syncHoleInterval(holeInterval Interval) error {
 	_, _ = io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to sync hole interval %+v: status code=%v (%v)",
-			holeInterval, resp.StatusCode, http.StatusText(resp.StatusCode))
-	}
-
 	return nil
 }
 
@@ -395,7 +519,7 @@ func (client *syncClient) getServerChecksum(batchInterval Interval) ([]byte, err
 	queries := make(map[string]string)
 	queries["begin"] = strconv.FormatInt(batchInterval.Begin, 10)
 	queries["end"] = strconv.FormatInt(batchInterval.End, 10)
-	resp, err := client.sendHTTPRequest("GET", "getChecksum", queries, nil)
+	resp, err := client.sendHTTPRequestWithRetry("GET", "getChecksum", queries, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get checksum")
 	}
@@ -403,11 +527,6 @@ func (client *syncClient) getServerChecksum(batchInterval Interval) ([]byte, err
 	// drain the buffer and close the body
 	body, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get server checksum of interval %+v: status code=%v (%v)",
-			batchInterval, resp.StatusCode, http.StatusText(resp.StatusCode))
-	}
 
 	if err != nil {
 		return nil, err
@@ -423,7 +542,7 @@ func (client *syncClient) getServerChecksum(batchInterval Interval) ([]byte, err
 
 func (client *syncClient) getServerRecordedMetadata() ([]byte, error) {
 	queries := make(map[string]string)
-	resp, err := client.sendHTTPRequest("GET", "getRecordedMetadata", queries, nil)
+	resp, err := client.sendHTTPRequestWithRetry("GET", "getRecordedMetadata", queries, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get recorded metadata")
 	}
@@ -432,11 +551,6 @@ func (client *syncClient) getServerRecordedMetadata() ([]byte, error) {
 	metadata, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get recorded metadata: status code=%v (%v)",
-			resp.StatusCode, http.StatusText(resp.StatusCode))
-	}
-
 	return metadata, err
 }
 
@@ -444,7 +558,7 @@ func (client *syncClient) writeData(dataInterval Interval, data []byte) error {
 	queries := make(map[string]string)
 	queries["begin"] = strconv.FormatInt(dataInterval.Begin, 10)
 	queries["end"] = strconv.FormatInt(dataInterval.End, 10)
-	resp, err := client.sendHTTPRequest("POST", "writeData", queries, data)
+	resp, err := client.sendHTTPRequestWithRetry("POST", "writeData", queries, data)
 	if err != nil {
 		return errors.Wrap(err, "failed to write data")
 	}
@@ -452,11 +566,6 @@ func (client *syncClient) writeData(dataInterval Interval, data []byte) error {
 	// drain the buffer and close the body
 	_, _ = io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to write data: status code=%v (%v)",
-			resp.StatusCode, http.StatusText(resp.StatusCode))
-	}
 
 	return nil
 }

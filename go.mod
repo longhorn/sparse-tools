@@ -5,6 +5,7 @@ go 1.24.0
 toolchain go1.24.8
 
 require (
+	github.com/avast/retry-go/v5 v5.0.0
 	github.com/cockroachdb/errors v1.12.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1

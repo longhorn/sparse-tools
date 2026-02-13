@@ -6,10 +6,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	retry "github.com/avast/retry-go/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,8 +31,19 @@ func (m *mockReaderWriterAt) GetDataLayout(ctx context.Context) (<-chan FileInte
 	return nil, nil, nil
 }
 
-// newTestSyncClient creates a syncClient for testing with custom retry config
-func newTestSyncClient(serverAddr string, retryConfig retryConfig) *syncClient {
+// testRetryOpts returns fast retry options for tests
+func testRetryOpts(maxRetries int, baseDelay, maxDelay time.Duration) []retry.Option {
+	return []retry.Option{
+		retry.Attempts(uint(maxRetries) + 1),
+		retry.Delay(baseDelay),
+		retry.MaxDelay(maxDelay),
+		retry.DelayType(retry.BackOffDelay),
+		retry.LastErrorOnly(true),
+	}
+}
+
+// newTestSyncClient creates a syncClient for testing with custom retry options
+func newTestSyncClient(serverAddr string, retryOpts []retry.Option) *syncClient {
 	client := newSyncClient(
 		serverAddr,
 		"test-source",
@@ -42,7 +55,7 @@ func newTestSyncClient(serverAddr string, retryConfig retryConfig) *syncClient {
 		512*Blocks,
 		4,
 	)
-	client.retry = retryConfig
+	client.retryOpts = retryOpts
 	client.ctx = context.Background()
 	return client
 }
@@ -51,30 +64,19 @@ func newTestSyncClient(serverAddr string, retryConfig retryConfig) *syncClient {
 func TestHTTPRetryClientErrorsNotRetried(t *testing.T) {
 	var attempts atomic.Int32
 
-	// Mock HTTP server that returns 404
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer server.Close()
 
-	// Create client with fast retry config
-	client := newTestSyncClient(server.Listener.Addr().String(), retryConfig{
-		maxRetries:     5,
-		retryBaseDelay: 10 * time.Millisecond,
-		retryMaxDelay:  100 * time.Millisecond,
-	})
+	client := newTestSyncClient(server.Listener.Addr().String(),
+		testRetryOpts(5, 10*time.Millisecond, 100*time.Millisecond))
 
-	// Try to send request
 	resp, err := client.sendHTTPRequestWithRetry("POST", "sendHole", nil, nil)
-
-	// Should fail with error
 	assert.NotNil(t, err)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
+	assert.Nil(t, resp, "Response should be nil on error")
 
-	// Should have tried exactly once (no retries for 4xx)
 	count := attempts.Load()
 	assert.Equal(t, int32(1), count, "Should NOT retry 4xx errors")
 }
@@ -83,7 +85,6 @@ func TestHTTPRetryClientErrorsNotRetried(t *testing.T) {
 func TestHTTPRetryTransientServerErrors(t *testing.T) {
 	var attempts atomic.Int32
 
-	// Mock HTTP server that fails first 2 attempts, then succeeds
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempt := attempts.Add(1)
 		if attempt <= 2 {
@@ -94,108 +95,39 @@ func TestHTTPRetryTransientServerErrors(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create client with fast retry config
-	client := newTestSyncClient(server.Listener.Addr().String(), retryConfig{
-		maxRetries:     5,
-		retryBaseDelay: 10 * time.Millisecond,
-		retryMaxDelay:  100 * time.Millisecond,
-	})
+	client := newTestSyncClient(server.Listener.Addr().String(),
+		testRetryOpts(5, 10*time.Millisecond, 100*time.Millisecond))
 
-	// Try to send request
 	resp, err := client.sendHTTPRequestWithRetry("POST", "sendHole", nil, nil)
-
-	// Should succeed after retries
 	assert.Nil(t, err)
 	require.NotNil(t, resp)
 	_ = resp.Body.Close()
 
-	// Should have retried (at least 3 attempts: 2 failures + 1 success)
 	count := attempts.Load()
 	t.Logf("Request was attempted %d times (expected >= 3)", count)
 	assert.GreaterOrEqual(t, int(count), 3, "Should have retried 5xx errors")
-}
-
-// TestHTTPRetryExponentialBackoff tests that retry delays increase exponentially
-func TestHTTPRetryExponentialBackoff(t *testing.T) {
-	var requestTimes []time.Time
-	var attempts atomic.Int32
-
-	// Mock HTTP server that fails first 3 attempts
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestTimes = append(requestTimes, time.Now())
-		attempt := attempts.Add(1)
-		if attempt <= 3 {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	// Create client with fast retry config
-	client := newTestSyncClient(server.Listener.Addr().String(), retryConfig{
-		maxRetries:     5,
-		retryBaseDelay: 50 * time.Millisecond,
-		retryMaxDelay:  500 * time.Millisecond,
-	})
-
-	// Try to send request
-	resp, err := client.sendHTTPRequestWithRetry("POST", "test", nil, nil)
-	assert.Nil(t, err)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-
-	// Verify exponential backoff
-	require.GreaterOrEqual(t, len(requestTimes), 4, "Should have at least 4 requests")
-
-	// Check delays between requests increase exponentially
-	baseDelay := 50 * time.Millisecond
-	for i := 1; i < len(requestTimes) && i < 4; i++ {
-		delay := requestTimes[i].Sub(requestTimes[i-1])
-		expectedMinDelay := time.Duration(1<<uint(i-1)) * baseDelay // 50ms, 100ms, 200ms
-
-		t.Logf("Delay between request %d and %d: %v (expected min: %v)", i, i+1, delay, expectedMinDelay)
-
-		// Allow 30ms tolerance for processing time
-		tolerance := 30 * time.Millisecond
-		assert.GreaterOrEqual(t, delay, expectedMinDelay-tolerance,
-			"Retry delay should follow exponential backoff")
-	}
 }
 
 // TestHTTPRetryMaxRetries tests that retries stop after exhausting max attempts
 func TestHTTPRetryMaxRetries(t *testing.T) {
 	var attempts atomic.Int32
 
-	// Mock HTTP server that always fails
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
 
-	// Create client with fast retry config
 	maxRetries := 3
-	client := newTestSyncClient(server.Listener.Addr().String(), retryConfig{
-		maxRetries:     maxRetries,
-		retryBaseDelay: 10 * time.Millisecond,
-		retryMaxDelay:  100 * time.Millisecond,
-	})
+	client := newTestSyncClient(server.Listener.Addr().String(),
+		testRetryOpts(maxRetries, 10*time.Millisecond, 100*time.Millisecond))
 
-	// Try to send request
 	resp, err := client.sendHTTPRequestWithRetry("POST", "test", nil, nil)
-
-	// Should fail after max retries
 	assert.NotNil(t, err)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
+	assert.Nil(t, resp)
 
-	// Should have made exactly maxRetries+1 attempts (initial + retries)
 	count := attempts.Load()
-	t.Logf("Request was attempted %d times (expected %d: initial + %d retries)",
-		count, maxRetries+1, maxRetries)
+	t.Logf("Request was attempted %d times (expected %d)", count, maxRetries+1)
 	assert.Equal(t, int32(maxRetries+1), count, "Should make exactly maxRetries+1 attempts")
 }
 
@@ -203,30 +135,19 @@ func TestHTTPRetryMaxRetries(t *testing.T) {
 func TestHTTPRetryRedirectsNotRetried(t *testing.T) {
 	var attempts atomic.Int32
 
-	// Mock HTTP server that returns 301 redirect
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
 		w.WriteHeader(http.StatusMovedPermanently)
 	}))
 	defer server.Close()
 
-	// Create client with fast retry config
-	client := newTestSyncClient(server.Listener.Addr().String(), retryConfig{
-		maxRetries:     5,
-		retryBaseDelay: 10 * time.Millisecond,
-		retryMaxDelay:  100 * time.Millisecond,
-	})
+	client := newTestSyncClient(server.Listener.Addr().String(),
+		testRetryOpts(5, 10*time.Millisecond, 100*time.Millisecond))
 
-	// Try to send request
 	resp, err := client.sendHTTPRequestWithRetry("POST", "test", nil, nil)
-
-	// Should fail with error
 	assert.NotNil(t, err)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
+	assert.Nil(t, resp)
 
-	// Should have tried exactly once (no retries for 3xx)
 	count := attempts.Load()
 	assert.Equal(t, int32(1), count, "Should NOT retry 3xx redirects")
 }
@@ -236,11 +157,8 @@ func TestHTTPRetryWithData(t *testing.T) {
 	var attempts atomic.Int32
 	testData := []byte("test data")
 
-	// Mock HTTP server that fails first attempt, then succeeds
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempt := attempts.Add(1)
-
-		// Verify request body
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		assert.Equal(t, testData, body, "Request body should match")
@@ -254,27 +172,18 @@ func TestHTTPRetryWithData(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create client with fast retry config
-	client := newTestSyncClient(server.Listener.Addr().String(), retryConfig{
-		maxRetries:     5,
-		retryBaseDelay: 10 * time.Millisecond,
-		retryMaxDelay:  100 * time.Millisecond,
-	})
+	client := newTestSyncClient(server.Listener.Addr().String(),
+		testRetryOpts(5, 10*time.Millisecond, 100*time.Millisecond))
 
-	// Try to send request with data
 	resp, err := client.sendHTTPRequestWithRetry("POST", "writeData", nil, testData)
-
-	// Should succeed after retry
 	assert.Nil(t, err)
 	require.NotNil(t, resp)
 
-	// Read response
 	body, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	assert.NoError(t, err)
 	assert.Contains(t, string(body), "success")
 
-	// Should have retried (2 attempts: 1 failure + 1 success)
 	count := attempts.Load()
 	assert.Equal(t, int32(2), count, "Should have retried once")
 }
@@ -283,50 +192,91 @@ func TestHTTPRetryWithData(t *testing.T) {
 func TestHTTPRetryContextCancellation(t *testing.T) {
 	var attempts atomic.Int32
 
-	// Mock HTTP server that always fails
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
 
-	// Create client with slow retry config
-	client := newTestSyncClient(server.Listener.Addr().String(), retryConfig{
-		maxRetries:     10,
-		retryBaseDelay: 100 * time.Millisecond,
-		retryMaxDelay:  1 * time.Second,
-	})
+	client := newTestSyncClient(server.Listener.Addr().String(),
+		testRetryOpts(10, 100*time.Millisecond, 1*time.Second))
 
-	// Set up context that will be cancelled
 	ctx, cancel := context.WithCancel(context.Background())
 	client.ctx = ctx
 
-	// Cancel context after short delay
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		cancel()
 	}()
 
-	// Try to send request
 	_, err := client.sendHTTPRequestWithRetry("POST", "test", nil, nil)
-
-	// Should fail due to context cancellation
 	assert.NotNil(t, err)
 
-	// Should have tried only a few times before context was cancelled
 	count := attempts.Load()
 	t.Logf("Request was attempted %d times before context cancellation", count)
 	assert.Less(t, int(count), 5, "Should stop retrying when context is cancelled")
 }
 
+// TestHTTPRetryExponentialBackoff tests that retry delays increase exponentially
+func TestHTTPRetryExponentialBackoff(t *testing.T) {
+	var requestTimes []time.Time
+	var requestTimesMu sync.Mutex
+	var attempts atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestTimesMu.Lock()
+		requestTimes = append(requestTimes, time.Now())
+		requestTimesMu.Unlock()
+
+		attempt := attempts.Add(1)
+		if attempt <= 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := newTestSyncClient(server.Listener.Addr().String(),
+		testRetryOpts(5, 50*time.Millisecond, 500*time.Millisecond))
+
+	resp, err := client.sendHTTPRequestWithRetry("POST", "test", nil, nil)
+	assert.Nil(t, err)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+
+	requestTimesMu.Lock()
+	timesSnapshot := make([]time.Time, len(requestTimes))
+	copy(timesSnapshot, requestTimes)
+	requestTimesMu.Unlock()
+
+	require.GreaterOrEqual(t, len(timesSnapshot), 4, "Should have at least 4 requests")
+
+	baseDelay := 50 * time.Millisecond
+	for i := 1; i < len(timesSnapshot) && i < 4; i++ {
+		delay := timesSnapshot[i].Sub(timesSnapshot[i-1])
+		expectedMinDelay := time.Duration(1<<uint(i-1)) * baseDelay
+
+		t.Logf("Delay between request %d and %d: %v (expected min: %v)", i, i+1, delay, expectedMinDelay)
+
+		tolerance := 30 * time.Millisecond
+		assert.GreaterOrEqual(t, delay, expectedMinDelay-tolerance,
+			"Retry delay should follow exponential backoff")
+	}
+}
+
 // TestHTTPRetryMaxDelayCap tests that retry delay is capped at maxDelay
 func TestHTTPRetryMaxDelayCap(t *testing.T) {
 	var requestTimes []time.Time
+	var requestTimesMu sync.Mutex
 	var attempts atomic.Int32
 
-	// Mock HTTP server that fails many times
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestTimesMu.Lock()
 		requestTimes = append(requestTimes, time.Now())
+		requestTimesMu.Unlock()
+
 		attempt := attempts.Add(1)
 		if attempt <= 5 {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -336,78 +286,71 @@ func TestHTTPRetryMaxDelayCap(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create client with config that hits max delay quickly
-	client := newTestSyncClient(server.Listener.Addr().String(), retryConfig{
-		maxRetries:     10,
-		retryBaseDelay: 50 * time.Millisecond,
-		retryMaxDelay:  150 * time.Millisecond, // Cap at 150ms
-	})
+	client := newTestSyncClient(server.Listener.Addr().String(),
+		testRetryOpts(10, 50*time.Millisecond, 150*time.Millisecond))
 
-	// Try to send request
 	resp, err := client.sendHTTPRequestWithRetry("POST", "test", nil, nil)
 	assert.Nil(t, err)
 	if resp != nil {
 		_ = resp.Body.Close()
 	}
 
-	// Verify delays are capped
-	require.GreaterOrEqual(t, len(requestTimes), 4)
+	requestTimesMu.Lock()
+	timesSnapshot := make([]time.Time, len(requestTimes))
+	copy(timesSnapshot, requestTimes)
+	requestTimesMu.Unlock()
 
-	// After 3rd retry, delay should be capped at maxDelay
-	// Delays: 50ms, 100ms, 200ms (capped to 150ms), 400ms (capped to 150ms)
-	for i := 3; i < len(requestTimes) && i < 6; i++ {
-		delay := requestTimes[i].Sub(requestTimes[i-1])
+	require.GreaterOrEqual(t, len(timesSnapshot), 4)
+
+	for i := 3; i < len(timesSnapshot) && i < 6; i++ {
+		delay := timesSnapshot[i].Sub(timesSnapshot[i-1])
 		maxDelay := 150 * time.Millisecond
 
 		t.Logf("Delay between request %d and %d: %v (should be capped at %v)", i, i+1, delay, maxDelay)
 
-		// Delay should not significantly exceed maxDelay
 		tolerance := 50 * time.Millisecond
 		assert.LessOrEqual(t, delay, maxDelay+tolerance,
 			"Retry delay should be capped at maxDelay")
 	}
 }
 
-// TestDefaultRetryConfig verifies that new clients get the default retry config
+// TestDefaultRetryConfig verifies that new clients use default retry options
 func TestDefaultRetryConfig(t *testing.T) {
 	client := newSyncClient(
-		"localhost:1234",
-		"test",
-		1024,
-		&mockReaderWriterAt{},
-		false,
-		10,
-		"", "", "",
-		512*Blocks,
-		4,
+		"localhost:1234", "test", 1024,
+		&mockReaderWriterAt{}, false, 10,
+		"", "", "", 512*Blocks, 4,
 	)
+	client.ctx = context.Background()
 
-	assert.Equal(t, defaultRetryConfig.maxRetries, client.retry.maxRetries)
-	assert.Equal(t, defaultRetryConfig.retryBaseDelay, client.retry.retryBaseDelay)
-	assert.Equal(t, defaultRetryConfig.retryMaxDelay, client.retry.retryMaxDelay)
-}
+	// Verify retryOpts is nil (uses defaultRetryOpts() internally)
+	assert.Nil(t, client.retryOpts, "retryOpts should be nil to use defaults")
 
-// TestCustomRetryConfig verifies that retry config can be customized per client
-func TestCustomRetryConfig(t *testing.T) {
-	customConfig := retryConfig{
-		maxRetries:     10,
-		retryBaseDelay: 5 * time.Second,
-		retryMaxDelay:  60 * time.Second,
+	// Verify that retry behavior works with a simple server test
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := attempts.Add(1)
+		if attempt <= 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client.remote = server.Listener.Addr().String()
+	resp, err := client.sendHTTPRequestWithRetry("GET", "test", nil, nil)
+	assert.Nil(t, err, "Should succeed with default retry options")
+	if resp != nil {
+		_ = resp.Body.Close()
 	}
-
-	client := newTestSyncClient("localhost:1234", customConfig)
-
-	assert.Equal(t, customConfig.maxRetries, client.retry.maxRetries)
-	assert.Equal(t, customConfig.retryBaseDelay, client.retry.retryBaseDelay)
-	assert.Equal(t, customConfig.retryMaxDelay, client.retry.retryMaxDelay)
+	assert.GreaterOrEqual(t, int(attempts.Load()), 2, "Should have retried at least once")
 }
 
-// TestHTTPRetry429TooManyRequests tests that 429 (Too Many Requests) IS retried
-// unlike other 4xx errors, since it represents transient rate-limiting
+// TestHTTPRetry429TooManyRequests tests that 429 IS retried
 func TestHTTPRetry429TooManyRequests(t *testing.T) {
 	var attempts atomic.Int32
 
-	// Mock HTTP server that returns 429 for first 2 attempts, then succeeds
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempt := attempts.Add(1)
 		if attempt <= 2 {
@@ -418,28 +361,20 @@ func TestHTTPRetry429TooManyRequests(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create client with fast retry config
-	client := newTestSyncClient(server.Listener.Addr().String(), retryConfig{
-		maxRetries:     5,
-		retryBaseDelay: 10 * time.Millisecond,
-		retryMaxDelay:  100 * time.Millisecond,
-	})
+	client := newTestSyncClient(server.Listener.Addr().String(),
+		testRetryOpts(5, 10*time.Millisecond, 100*time.Millisecond))
 
-	// Try to send request
 	resp, err := client.sendHTTPRequestWithRetry("POST", "test", nil, nil)
-
-	// Should succeed after retries
 	assert.Nil(t, err)
 	require.NotNil(t, resp)
 	_ = resp.Body.Close()
 
-	// Should have retried (at least 3 attempts: 2 failures + 1 success)
 	count := attempts.Load()
 	t.Logf("Request was attempted %d times (expected >= 3)", count)
-	assert.GreaterOrEqual(t, int(count), 3, "Should retry 429 (Too Many Requests) errors")
+	assert.GreaterOrEqual(t, int(count), 3, "Should retry 429 errors")
 }
 
-// TestHTTPRetry4xxErrorsNotRetried tests that other 4xx errors (not 429) are NOT retried
+// TestHTTPRetry4xxErrorsNotRetried tests that other 4xx errors are NOT retried
 func TestHTTPRetry4xxErrorsNotRetried(t *testing.T) {
 	testCases := []struct {
 		name       string
@@ -456,30 +391,19 @@ func TestHTTPRetry4xxErrorsNotRetried(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var attempts atomic.Int32
 
-			// Mock HTTP server that returns the specific 4xx error
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				attempts.Add(1)
 				w.WriteHeader(tc.statusCode)
 			}))
 			defer server.Close()
 
-			// Create client with fast retry config
-			client := newTestSyncClient(server.Listener.Addr().String(), retryConfig{
-				maxRetries:     5,
-				retryBaseDelay: 10 * time.Millisecond,
-				retryMaxDelay:  100 * time.Millisecond,
-			})
+			client := newTestSyncClient(server.Listener.Addr().String(),
+				testRetryOpts(5, 10*time.Millisecond, 100*time.Millisecond))
 
-			// Try to send request
 			resp, err := client.sendHTTPRequestWithRetry("POST", "test", nil, nil)
-
-			// Should fail with error
 			assert.NotNil(t, err)
-			if resp != nil {
-				_ = resp.Body.Close()
-			}
+			assert.Nil(t, resp)
 
-			// Should have tried exactly once (no retries for 4xx errors except 429)
 			count := attempts.Load()
 			assert.Equal(t, int32(1), count, "Should NOT retry %d errors", tc.statusCode)
 		})

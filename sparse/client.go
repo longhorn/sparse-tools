@@ -350,7 +350,7 @@ func (client *syncClient) sendHTTPRequestWithRetry(method string, action string,
 		resp = nil
 
 		if isNonRetryableStatusCode(statusCode) {
-			return retry.Unrecoverable(fmt.Errorf("request %s %s failed with client error %d (%s)",
+			return retry.Unrecoverable(fmt.Errorf("request %s %s failed with non-retryable status %d (%s)",
 				method, action, statusCode, http.StatusText(statusCode)))
 		}
 

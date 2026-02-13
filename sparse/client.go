@@ -15,6 +15,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 
+	retry "github.com/avast/retry-go/v5"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/longhorn/sparse-tools/types"
@@ -26,20 +27,21 @@ const (
 
 	defaultSyncWorkerCount = 4
 	defaultSyncBatchSize   = 512 * Blocks
+
+	defaultMaxRetries     = 5
+	defaultRetryBaseDelay = 2 * time.Second
+	defaultRetryMaxDelay  = 30 * time.Second
 )
 
-// retryConfig holds retry behavior configuration
-type retryConfig struct {
-	maxRetries     int
-	retryBaseDelay time.Duration
-	retryMaxDelay  time.Duration
-}
-
-// defaultRetryConfig is the production retry configuration
-var defaultRetryConfig = retryConfig{
-	maxRetries:     5,
-	retryBaseDelay: 2 * time.Second,
-	retryMaxDelay:  30 * time.Second,
+// defaultRetryOpts returns the production retry options
+func defaultRetryOpts() []retry.Option {
+	return []retry.Option{
+		retry.Attempts(uint(defaultMaxRetries) + 1), // Attempts = initial + retries
+		retry.Delay(defaultRetryBaseDelay),
+		retry.MaxDelay(defaultRetryMaxDelay),
+		retry.DelayType(retry.BackOffDelay),
+		retry.LastErrorOnly(true),
+	}
 }
 
 type DataSyncClient interface {
@@ -69,7 +71,8 @@ type syncClient struct {
 	httpClient        *http.Client
 	httpClientTimeout int
 
-	retry retryConfig
+	// retryOpts allows overriding retry options for testing
+	retryOpts []retry.Option
 
 	ctx context.Context
 }
@@ -114,8 +117,6 @@ func newSyncClient(remote string, sourceName string, size int64, rw ReaderWriter
 
 		syncBatchSize:  syncBatchSize,
 		numSyncWorkers: numSyncWorkers,
-
-		retry: defaultRetryConfig,
 	}
 }
 
@@ -313,6 +314,57 @@ func (client *syncClient) processSegment(segment FileInterval) error {
 	return nil
 }
 
+func (client *syncClient) sendHTTPRequestWithRetry(method string, action string, queries map[string]string, data []byte) (*http.Response, error) {
+	var resp *http.Response
+
+	// Use custom retryOpts if set (for testing), otherwise use defaults
+	baseOpts := client.retryOpts
+	if baseOpts == nil {
+		baseOpts = defaultRetryOpts()
+	}
+	opts := append([]retry.Option{}, baseOpts...)
+	opts = append(opts,
+		retry.Context(client.ctx),
+		retry.OnRetry(func(attempt uint, err error) {
+			log.Warnf("Request %s %s failed (retry %d): %v, retrying...",
+				method, action, attempt+1, err)
+		}),
+	)
+
+	err := retry.New(opts...).Do(func() error {
+		var reqErr error
+		resp, reqErr = client.sendHTTPRequest(method, action, queries, data)
+		if reqErr != nil {
+			return reqErr
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+
+		statusCode := resp.StatusCode
+		closeResponse(resp)
+		resp = nil
+
+		if isNonRetryableStatusCode(statusCode) {
+			return retry.Unrecoverable(fmt.Errorf("request %s %s failed with client error %d (%s)",
+				method, action, statusCode, http.StatusText(statusCode)))
+		}
+
+		return fmt.Errorf("request %s %s returned status %d (%s)",
+			method, action, statusCode, http.StatusText(statusCode))
+	})
+
+	if err != nil {
+		// Ensure resp is cleaned up on final failure
+		closeResponse(resp)
+		resp = nil
+		return nil, err
+	}
+
+	return resp, nil
+}
+
 func (client *syncClient) sendHTTPRequest(method string, action string, queries map[string]string, data []byte) (*http.Response, error) {
 	httpClient := client.httpClient
 	if httpClient == nil {
@@ -356,93 +408,11 @@ func closeResponse(resp *http.Response) {
 	_ = resp.Body.Close()
 }
 
-// isClientError returns true if the response is a 3xx redirect or 4xx client error
-// that should not be retried. Note: 429 (Too Many Requests) is excluded as it
-// represents a transient rate-limiting condition that benefits from retry with backoff.
-func isClientError(resp *http.Response) bool {
-	if resp == nil {
-		return false
-	}
-	// 3xx redirects and most 4xx client errors should not be retried
-	// Exception: 429 (Too Many Requests) is transient and should be retried
-	return resp.StatusCode >= 300 && resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests
-}
-
-// waitWithContext waits for the specified delay or until context is cancelled
-func (client *syncClient) waitWithContext(delay time.Duration) error {
-	timer := time.NewTimer(delay)
-	select {
-	case <-client.ctx.Done():
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
-		return client.ctx.Err()
-	case <-timer.C:
-		return nil
-	}
-}
-
-func (client *syncClient) sendHTTPRequestWithRetry(method string, action string, queries map[string]string, data []byte) (*http.Response, error) {
-	cfg := client.retry
-
-	var resp *http.Response
-	var err error
-	delay := cfg.retryBaseDelay
-	totalAttempts := cfg.maxRetries + 1
-
-	for attempt := 0; attempt <= cfg.maxRetries; attempt++ {
-		resp, err = client.sendHTTPRequest(method, action, queries, data)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			return resp, nil
-		}
-
-		// Don't retry client errors (4xx) or redirects (3xx) — only server/network errors are transient
-		if err == nil && isClientError(resp) {
-			closeResponse(resp)
-			return resp, fmt.Errorf("request %s %s failed with client error %d (%s)",
-				method, action, resp.StatusCode, http.StatusText(resp.StatusCode))
-		}
-
-		if attempt < cfg.maxRetries {
-			closeResponse(resp)
-
-			if err != nil {
-				log.Warnf("Request %s %s failed (attempt %d/%d): %v, retrying in %v...",
-					method, action, attempt+1, totalAttempts, err, delay)
-			} else {
-				log.Warnf("Request %s %s returned status %d (attempt %d/%d), retrying in %v...",
-					method, action, resp.StatusCode, attempt+1, totalAttempts, delay)
-			}
-
-			if waitErr := client.waitWithContext(delay); waitErr != nil {
-				// resp has already been closed above; do not return a closed response
-				return nil, waitErr
-			}
-
-			delay *= 2
-			if delay > cfg.retryMaxDelay {
-				delay = cfg.retryMaxDelay
-			}
-		}
-	}
-
-	if err != nil {
-		log.Errorf("Request %s %s failed after %d retries: %v", method, action, cfg.maxRetries, err)
-		closeResponse(resp)
-		return resp, err
-	}
-
-	if resp != nil && resp.StatusCode != http.StatusOK {
-		log.Errorf("Request %s %s returned status %d after %d retries", method, action, resp.StatusCode, cfg.maxRetries)
-		closeResponse(resp)
-		return resp, fmt.Errorf("request %s %s failed with status %d (%s) after %d retries",
-			method, action, resp.StatusCode, http.StatusText(resp.StatusCode), cfg.maxRetries)
-	}
-
-	return resp, nil
+// isNonRetryableStatusCode returns true if the HTTP status code indicates a client error
+// (3xx or 4xx) that should not be retried. 429 (Too Many Requests) is excluded since it
+// represents transient rate-limiting.
+func isNonRetryableStatusCode(statusCode int) bool {
+	return statusCode >= 300 && statusCode < 500 && statusCode != http.StatusTooManyRequests
 }
 
 func (client *syncClient) open() error {

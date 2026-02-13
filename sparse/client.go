@@ -335,6 +335,9 @@ func (client *syncClient) sendHTTPRequestWithRetry(method string, action string,
 		var reqErr error
 		resp, reqErr = client.sendHTTPRequest(method, action, queries, data)
 		if reqErr != nil {
+			// Ensure any response body is closed on error to avoid leaking connections
+			closeResponse(resp)
+			resp = nil
 			return reqErr
 		}
 

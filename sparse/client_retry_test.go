@@ -16,6 +16,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// fakeTimer is a deterministic timer for testing retry delays without actual waiting
+type fakeTimer struct {
+	mu     sync.Mutex
+	delays []time.Duration
+}
+
+func (f *fakeTimer) After(d time.Duration) <-chan time.Time {
+	f.mu.Lock()
+	f.delays = append(f.delays, d)
+	f.mu.Unlock()
+
+	ch := make(chan time.Time, 1)
+	ch <- time.Now() // Immediately trigger without actual waiting
+	return ch
+}
+
+func (f *fakeTimer) GetDelays() []time.Duration {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	result := make([]time.Duration, len(f.delays))
+	copy(result, f.delays)
+	return result
+}
+
 // mockReaderWriterAt is a minimal implementation for testing
 type mockReaderWriterAt struct{}
 
@@ -219,15 +243,10 @@ func TestHTTPRetryContextCancellation(t *testing.T) {
 
 // TestHTTPRetryExponentialBackoff tests that retry delays increase exponentially
 func TestHTTPRetryExponentialBackoff(t *testing.T) {
-	var requestTimes []time.Time
-	var requestTimesMu sync.Mutex
 	var attempts atomic.Int32
+	timer := &fakeTimer{}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestTimesMu.Lock()
-		requestTimes = append(requestTimes, time.Now())
-		requestTimesMu.Unlock()
-
 		attempt := attempts.Add(1)
 		if attempt <= 3 {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -237,8 +256,13 @@ func TestHTTPRetryExponentialBackoff(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newTestSyncClient(server.Listener.Addr().String(),
-		testRetryOpts(5, 50*time.Millisecond, 500*time.Millisecond))
+	baseDelay := 50 * time.Millisecond
+	retryOpts := append(
+		testRetryOpts(5, baseDelay, 500*time.Millisecond),
+		retry.WithTimer(timer),
+	)
+
+	client := newTestSyncClient(server.Listener.Addr().String(), retryOpts)
 
 	resp, err := client.sendHTTPRequestWithRetry("POST", "test", nil, nil)
 	assert.Nil(t, err)
@@ -246,37 +270,29 @@ func TestHTTPRetryExponentialBackoff(t *testing.T) {
 		_ = resp.Body.Close()
 	}
 
-	requestTimesMu.Lock()
-	timesSnapshot := make([]time.Time, len(requestTimes))
-	copy(timesSnapshot, requestTimes)
-	requestTimesMu.Unlock()
+	// Verify we made 4 attempts (initial + 3 retries)
+	assert.Equal(t, int32(4), attempts.Load(), "Should have made 4 requests")
 
-	require.GreaterOrEqual(t, len(timesSnapshot), 4, "Should have at least 4 requests")
+	// Validate exponential backoff delays (deterministicially recorded by fakeTimer)
+	delays := timer.GetDelays()
+	require.Len(t, delays, 3, "Should have recorded 3 retry delays")
 
-	baseDelay := 50 * time.Millisecond
-	for i := 1; i < len(timesSnapshot) && i < 4; i++ {
-		delay := timesSnapshot[i].Sub(timesSnapshot[i-1])
-		expectedMinDelay := time.Duration(1<<uint(i-1)) * baseDelay
+	for i, delay := range delays {
+		expectedDelay := time.Duration(1<<uint(i)) * baseDelay
+		t.Logf("Retry %d: delay=%v, expected=%v", i+1, delay, expectedDelay)
 
-		t.Logf("Delay between request %d and %d: %v (expected min: %v)", i, i+1, delay, expectedMinDelay)
-
-		tolerance := 30 * time.Millisecond
-		assert.GreaterOrEqual(t, delay, expectedMinDelay-tolerance,
-			"Retry delay should follow exponential backoff")
+		// Exact match since we're using a fake timer (no jitter in testRetryOpts)
+		assert.Equal(t, expectedDelay, delay,
+			"Retry delay %d should follow exponential backoff: 2^%d * %v", i+1, i, baseDelay)
 	}
 }
 
 // TestHTTPRetryMaxDelayCap tests that retry delay is capped at maxDelay
 func TestHTTPRetryMaxDelayCap(t *testing.T) {
-	var requestTimes []time.Time
-	var requestTimesMu sync.Mutex
 	var attempts atomic.Int32
+	timer := &fakeTimer{}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestTimesMu.Lock()
-		requestTimes = append(requestTimes, time.Now())
-		requestTimesMu.Unlock()
-
 		attempt := attempts.Add(1)
 		if attempt <= 5 {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -286,8 +302,14 @@ func TestHTTPRetryMaxDelayCap(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newTestSyncClient(server.Listener.Addr().String(),
-		testRetryOpts(10, 50*time.Millisecond, 150*time.Millisecond))
+	baseDelay := 50 * time.Millisecond
+	maxDelay := 150 * time.Millisecond
+	retryOpts := append(
+		testRetryOpts(10, baseDelay, maxDelay),
+		retry.WithTimer(timer),
+	)
+
+	client := newTestSyncClient(server.Listener.Addr().String(), retryOpts)
 
 	resp, err := client.sendHTTPRequestWithRetry("POST", "test", nil, nil)
 	assert.Nil(t, err)
@@ -295,22 +317,28 @@ func TestHTTPRetryMaxDelayCap(t *testing.T) {
 		_ = resp.Body.Close()
 	}
 
-	requestTimesMu.Lock()
-	timesSnapshot := make([]time.Time, len(requestTimes))
-	copy(timesSnapshot, requestTimes)
-	requestTimesMu.Unlock()
+	// Verify we made 6 attempts (initial + 5 retries)
+	assert.Equal(t, int32(6), attempts.Load(), "Should have made 6 requests")
 
-	require.GreaterOrEqual(t, len(timesSnapshot), 4)
+	// Validate that delays are capped at maxDelay
+	delays := timer.GetDelays()
+	require.Len(t, delays, 5, "Should have recorded 5 retry delays")
 
-	for i := 3; i < len(timesSnapshot) && i < 6; i++ {
-		delay := timesSnapshot[i].Sub(timesSnapshot[i-1])
-		maxDelay := 150 * time.Millisecond
+	for i, delay := range delays {
+		uncappedDelay := time.Duration(1<<uint(i)) * baseDelay
+		expectedDelay := min(uncappedDelay, maxDelay)
 
-		t.Logf("Delay between request %d and %d: %v (should be capped at %v)", i, i+1, delay, maxDelay)
+		t.Logf("Retry %d: delay=%v, uncapped=%v, max=%v", i+1, delay, uncappedDelay, maxDelay)
 
-		tolerance := 50 * time.Millisecond
-		assert.LessOrEqual(t, delay, maxDelay+tolerance,
-			"Retry delay should be capped at maxDelay")
+		assert.Equal(t, expectedDelay, delay,
+			"Retry delay %d should be capped at maxDelay", i+1)
+
+		// Verify delays after the 2nd retry are capped
+		// 2^0*50ms=50ms, 2^1*50ms=100ms, 2^2*50ms=200ms (capped to 150ms)
+		if i >= 2 {
+			assert.Equal(t, maxDelay, delay,
+				"Retry delay %d should be capped at maxDelay=%v", i+1, maxDelay)
+		}
 	}
 }
 

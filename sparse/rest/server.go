@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/cockroachdb/errors"
-
 	log "github.com/sirupsen/logrus"
 
 	"github.com/longhorn/sparse-tools/sparse"

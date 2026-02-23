@@ -13,9 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cockroachdb/errors"
-
 	retry "github.com/avast/retry-go/v5"
+	"github.com/cockroachdb/errors"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/longhorn/sparse-tools/types"

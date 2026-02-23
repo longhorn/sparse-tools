@@ -68,16 +68,30 @@ func testRetryOpts(maxRetries int, baseDelay, maxDelay time.Duration) []retry.Op
 
 // newTestSyncClient creates a syncClient for testing with custom retry options
 func newTestSyncClient(serverAddr string, retryOpts []retry.Option) *syncClient {
+	const (
+		sourceName         = "test-source"
+		size               = 1024
+		directIO           = false
+		httpClientTimeout  = 10
+		recordedChangeTime = ""
+		recordedChecksum   = ""
+		recordedMethod     = ""
+		syncBatchSize      = 512 * Blocks
+		numSyncWorkers     = 4
+	)
+
 	client := newSyncClient(
 		serverAddr,
-		"test-source",
-		1024,
+		sourceName,
+		size,
 		&mockReaderWriterAt{},
-		false,
-		10,
-		"", "", "",
-		512*Blocks,
-		4,
+		directIO,
+		httpClientTimeout,
+		recordedChangeTime,
+		recordedChecksum,
+		recordedMethod,
+		syncBatchSize,
+		numSyncWorkers,
 	)
 	client.retryOpts = retryOpts
 	client.ctx = context.Background()

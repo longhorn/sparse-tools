@@ -10,10 +10,7 @@ HTTP GET with retry:
 	url := "http://example.com"
 	var body []byte
 
-	err := retry.New(
-		retry.Attempts(5),
-		retry.Delay(100*time.Millisecond),
-	).Do(
+	err := retry.Do(
 		func() error {
 			resp, err := http.Get(url)
 			if err != nil {
@@ -38,7 +35,7 @@ HTTP GET with retry with data:
 
 	url := "http://example.com"
 
-	body, err := retry.DoWithData(retry.New(),
+	body, err := retry.DoWithData(
 		func() ([]byte, error) {
 			resp, err := http.Get(url)
 			if err != nil {
@@ -60,31 +57,9 @@ HTTP GET with retry with data:
 
 	fmt.Println(string(body))
 
-Reusable retrier for high-frequency retry operations:
-
-	// Create retrier once, reuse many times
-	retrier := retry.New(
-		retry.Attempts(5),
-		retry.Delay(100*time.Millisecond),
-	)
-
-	// Minimal allocations in happy path
-	for {
-		err := retrier.Do(
-			func() error {
-				return doWork()
-			},
-		)
-		if err != nil {
-			// handle error
-		}
-	}
-
-[More examples](https://github.com/avast/retry-go/tree/main/examples)
+[More examples](https://github.com/avast/retry-go/tree/master/examples)
 
 # SEE ALSO
-
-* [codeGROOVE-dev/retry](https://github.com/codeGROOVE-dev/retry) - Modern fork of avast/retry-go/v4 focused on correctness, reliability and efficiency. 100% API-compatible drop-in replacement. Looks really good.
 
 * [giantswarm/retry-go](https://github.com/giantswarm/retry-go) - slightly complicated interface.
 
@@ -97,17 +72,6 @@ Reusable retrier for high-frequency retry operations:
 * [matryer/try](https://github.com/matryer/try) - very popular package, nonintuitive interface (for me)
 
 # BREAKING CHANGES
-
-* 5.0.0
-  - Complete API redesign: method-based retry operations
-  - Renamed `Config` type to `Retrier`
-  - Renamed `NewConfig()` to `New()`
-  - Changed from package-level functions to methods: `retry.Do(func, config)` → `retry.New(opts...).Do(func)`
-  - `DelayTypeFunc` signature changed: `func(n uint, err error, config *Config)` → `func(n uint, err error, r *Retrier)`
-  - Migration: `retry.Do(func, opts...)` → `retry.New(opts...).Do(func)` (simple find & replace)
-  - This change improves performance, simplifies the API, and provides a cleaner interface
-  - `Unwrap()` now returns `[]error` instead of `error` to support Go 1.20 multiple error wrapping.
-  - `errors.Unwrap(err)` will now return `nil` (same as `errors.Join`). Use `errors.Is` or `errors.As` to inspect wrapped errors.
 
 * 4.0.0
   - infinity retry is possible by set `Attempts(0)` by PR [#49](https://github.com/avast/retry-go/pull/49)
@@ -140,39 +104,41 @@ type RetryableFunc func() error
 // Function signature of retryable function with data
 type RetryableFuncWithData[T any] func() (T, error)
 
-// Default r.timer is a wrapper around time.After
+// Default timer is a wrapper around time.After
 type timerImpl struct{}
 
 func (t *timerImpl) After(d time.Duration) <-chan time.Time {
 	return time.After(d)
 }
 
-// Do executes the retryable function using this Retrier's configuration.
-func (r *Retrier) Do(retryableFunc RetryableFunc) error {
+func Do(retryableFunc RetryableFunc, opts ...Option) error {
 	retryableFuncWithData := func() (any, error) {
 		return nil, retryableFunc()
 	}
 
-	_, err := doWithData(r.retrierCore, retryableFuncWithData)
+	_, err := DoWithData(retryableFuncWithData, opts...)
 	return err
 }
 
-// Do executes the retryable function using this RetrierWithData's configuration.
-func (r *RetrierWithData[T]) Do(retryableFunc RetryableFuncWithData[T]) (T, error) {
-	return doWithData(r.retrierCore, retryableFunc)
-}
-
-func doWithData[T any](r *retrierCore, retryableFunc RetryableFuncWithData[T]) (T, error) {
-	var emptyT T
+func DoWithData[T any](retryableFunc RetryableFuncWithData[T], opts ...Option) (T, error) {
 	var n uint
+	var emptyT T
 
-	if err := context.Cause(r.context); err != nil {
+	// default
+	config := newDefaultRetryConfig()
+
+	// apply opts
+	for _, opt := range opts {
+		opt(config)
+	}
+
+	if err := context.Cause(config.context); err != nil {
 		return emptyT, err
 	}
 
-	// Setting r.attempts to 0 means we'll retry until we succeed
+	// Setting attempts to 0 means we'll retry until we succeed
 	var lastErr error
-	if r.attempts == 0 {
+	if config.attempts == 0 {
 		for {
 			t, err := retryableFunc()
 			if err == nil {
@@ -183,30 +149,30 @@ func doWithData[T any](r *retrierCore, retryableFunc RetryableFuncWithData[T]) (
 				return emptyT, err
 			}
 
-			if !r.retryIf(err) {
+			if !config.retryIf(err) {
 				return emptyT, err
 			}
 
 			lastErr = err
 
-			r.onRetry(n, err)
+			config.onRetry(n, err)
 			n++
 			select {
-			case <-r.timer.After(r.computeDelay(n, err)):
-			case <-r.context.Done():
-				if r.wrapContextErrorWithLastError {
-					return emptyT, Error{context.Cause(r.context), lastErr}
+			case <-config.timer.After(delay(config, n, err)):
+			case <-config.context.Done():
+				if config.wrapContextErrorWithLastError {
+					return emptyT, Error{context.Cause(config.context), lastErr}
 				}
-				return emptyT, context.Cause(r.context)
+				return emptyT, context.Cause(config.context)
 			}
 		}
 	}
 
 	errorLog := Error{}
 
-	attemptsForErrorCopy := make(map[error]uint, len(r.attemptsForError))
-	for err, attempts := range r.attemptsForError {
-		attemptsForErrorCopy[err] = attempts
+	attemptsForError := make(map[error]uint, len(config.attemptsForError))
+	for err, attempts := range config.attemptsForError {
+		attemptsForError[err] = attempts
 	}
 
 shouldRetry:
@@ -218,42 +184,57 @@ shouldRetry:
 
 		errorLog = append(errorLog, unpackUnrecoverable(err))
 
-		if !r.retryIf(err) {
+		if !config.retryIf(err) {
 			break
 		}
 
-		r.onRetry(n, err)
+		config.onRetry(n, err)
 
-		for errToCheck, attemptsForThisError := range attemptsForErrorCopy {
+		for errToCheck, attempts := range attemptsForError {
 			if errors.Is(err, errToCheck) {
-				attemptsForThisError--
-				attemptsForErrorCopy[errToCheck] = attemptsForThisError
-				if attemptsForThisError <= 0 {
+				attempts--
+				attemptsForError[errToCheck] = attempts
+				if attempts <= 0 {
 					break shouldRetry
 				}
 			}
 		}
 
 		// if this is last attempt - don't wait
-		if n == r.attempts-1 {
+		if n == config.attempts-1 {
 			break shouldRetry
 		}
 		n++
 		select {
-		case <-r.timer.After(r.computeDelay(n, err)):
-		case <-r.context.Done():
-			if r.lastErrorOnly {
-				return emptyT, context.Cause(r.context)
+		case <-config.timer.After(delay(config, n, err)):
+		case <-config.context.Done():
+			if config.lastErrorOnly {
+				return emptyT, context.Cause(config.context)
 			}
 
-			return emptyT, append(errorLog, context.Cause(r.context))
+			return emptyT, append(errorLog, context.Cause(config.context))
 		}
 	}
 
-	if r.lastErrorOnly {
-		return emptyT, errorLog[len(errorLog)-1]
+	if config.lastErrorOnly {
+		return emptyT, errorLog.Unwrap()
 	}
 	return emptyT, errorLog
+}
+
+func newDefaultRetryConfig() *Config {
+	return &Config{
+		attempts:         uint(10),
+		attemptsForError: make(map[error]uint),
+		delay:            100 * time.Millisecond,
+		maxJitter:        100 * time.Millisecond,
+		onRetry:          func(n uint, err error) {},
+		retryIf:          IsRecoverable,
+		delayType:        CombineDelay(BackOffDelay, RandomDelay),
+		lastErrorOnly:    false,
+		context:          context.Background(),
+		timer:            &timerImpl{},
+	}
 }
 
 // Error type represents list of errors in retry
@@ -290,41 +271,23 @@ func (e Error) As(target interface{}) bool {
 	return false
 }
 
-// Unwrap returns the list of errors that this Error is wrapping.
-//
-// This method implements the Unwrap() []error interface introduced in Go 1.20
-// for multi-error unwrapping. This allows errors.Is and errors.As to traverse
-// all wrapped errors, not just the last one.
-//
-// IMPORTANT: errors.Unwrap(err) will return nil because the standard library's
-// errors.Unwrap function only calls Unwrap() error, not Unwrap() []error.
-// This is the same behavior as errors.Join in Go 1.20.
-//
-// Example - Use errors.Is to check for specific errors:
-//
-//	err := retry.New(retry.Attempts(3)).Do(func() error {
-//		return os.ErrNotExist
-//	})
-//	if errors.Is(err, os.ErrNotExist) {
-//		// Handle not exist error
-//	}
-//
-// Example - Use errors.As to extract error details:
-//
-//	var pathErr *fs.PathError
-//	if errors.As(err, &pathErr) {
-//		fmt.Println("Failed at path:", pathErr.Path)
-//	}
-//
-// Example - Get the last error directly (for migration):
-//
-//	if retryErr, ok := err.(retry.Error); ok {
-//		lastErr := retryErr.LastError()
-//	}
-//
-// See also: LastError() for direct access to the last error.
-func (e Error) Unwrap() []error {
-	return e
+/*
+Unwrap the last error for compatibility with `errors.Unwrap()`.
+When you need to unwrap all errors, you should use `WrappedErrors()` instead.
+
+	err := Do(
+		func() error {
+			return errors.New("original error")
+		},
+		Attempts(1),
+	)
+
+	fmt.Println(errors.Unwrap(err)) # "original error" is printed
+
+Added in version 4.2.0.
+*/
+func (e Error) Unwrap() error {
+	return e[len(e)-1]
 }
 
 // WrappedErrors returns the list of errors that this Error is wrapping.
@@ -333,32 +296,6 @@ func (e Error) Unwrap() []error {
 // `retry.Error` can be used with that library.
 func (e Error) WrappedErrors() []error {
 	return e
-}
-
-// LastError returns the last error in the error list.
-//
-// This is a convenience method for users migrating from retry-go v4.x where
-// errors.Unwrap(err) returned the last error. In v5.0.0, errors.Unwrap(err)
-// returns nil due to the switch to Unwrap() []error for Go 1.20 compatibility.
-//
-// Migration example:
-//
-//	// v4.x code:
-//	lastErr := errors.Unwrap(retryErr)
-//
-//	// v5.0.0 code (option 1 - recommended):
-//	if errors.Is(retryErr, specificError) { ... }
-//
-//	// v5.0.0 code (option 2 - if you need the last error):
-//	lastErr := retryErr.(retry.Error).LastError()
-//
-// Note: Using errors.Is or errors.As is preferred as they check ALL wrapped
-// errors, not just the last one.
-func (e Error) LastError() error {
-	if len(e) == 0 {
-		return nil
-	}
-	return e[len(e)-1]
 }
 
 type unrecoverableError struct {
@@ -400,10 +337,11 @@ func unpackUnrecoverable(err error) error {
 	return err
 }
 
-func (r *retrierCore) computeDelay(n uint, err error) time.Duration {
-	delayTime := r.delayType(n, err, r)
-	if r.maxDelay > 0 && delayTime > r.maxDelay {
-		delayTime = r.maxDelay
+func delay(config *Config, n uint, err error) time.Duration {
+	delayTime := config.delayType(n, err, config)
+	if config.maxDelay > 0 && delayTime > config.maxDelay {
+		delayTime = config.maxDelay
 	}
+
 	return delayTime
 }

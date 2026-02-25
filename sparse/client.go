@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	retry "github.com/avast/retry-go/v5"
+	retry "github.com/avast/retry-go/v4"
 	"github.com/cockroachdb/errors"
 	log "github.com/sirupsen/logrus"
 
@@ -330,7 +330,7 @@ func (client *syncClient) sendHTTPRequestWithRetry(method string, action string,
 		}),
 	)
 
-	err := retry.New(opts...).Do(func() error {
+	err := retry.Do(func() error {
 		var reqErr error
 		resp, reqErr = client.sendHTTPRequest(method, action, queries, data)
 		if reqErr != nil {
@@ -355,7 +355,7 @@ func (client *syncClient) sendHTTPRequestWithRetry(method string, action string,
 
 		return fmt.Errorf("request %s %s returned status %d (%s)",
 			method, action, statusCode, http.StatusText(statusCode))
-	})
+	}, opts...)
 
 	if err != nil {
 		// Ensure resp is cleaned up on final failure

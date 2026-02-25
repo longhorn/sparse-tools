@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	retry "github.com/avast/retry-go/v5"
+	retry "github.com/avast/retry-go/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

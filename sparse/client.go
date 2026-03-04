@@ -13,8 +13,9 @@ import (
 	"sync"
 	"time"
 
-	retry "github.com/avast/retry-go/v4"
 	"github.com/cockroachdb/errors"
+
+	retry "github.com/avast/retry-go/v4"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/longhorn/sparse-tools/types"
@@ -356,7 +357,6 @@ func (client *syncClient) sendHTTPRequestWithRetry(method string, action string,
 		return fmt.Errorf("request %s %s returned status %d (%s)",
 			method, action, statusCode, http.StatusText(statusCode))
 	}, opts...)
-
 	if err != nil {
 		// Ensure resp is cleaned up on final failure
 		closeResponse(resp)

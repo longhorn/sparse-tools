@@ -206,7 +206,8 @@ func TestHTTPRetryWithData(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"success": true}`)
+		_, err = fmt.Fprint(w, `{"success": true}`)
+		require.NoError(t, err)
 	}))
 	defer server.Close()
 

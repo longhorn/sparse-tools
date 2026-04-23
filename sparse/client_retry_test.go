@@ -94,6 +94,7 @@ func newTestSyncClient(serverAddr string, retryOpts []retry.Option) *syncClient 
 		numSyncWorkers,
 	)
 	client.retryOpts = retryOpts
+	client.httpRetryEnabled = true
 	client.ctx = context.Background()
 	return client
 }
@@ -357,7 +358,7 @@ func TestHTTPRetryMaxDelayCap(t *testing.T) {
 	}
 }
 
-// TestDefaultRetryConfig verifies that new clients use default retry options
+// TestDefaultRetryConfig verifies that new clients do not retry unless explicitly enabled.
 func TestDefaultRetryConfig(t *testing.T) {
 	client := newSyncClient(
 		"localhost:1234", "test", 1024,
@@ -366,10 +367,8 @@ func TestDefaultRetryConfig(t *testing.T) {
 	)
 	client.ctx = context.Background()
 
-	// Verify retryOpts is nil (uses defaultRetryOpts() internally)
-	assert.Nil(t, client.retryOpts, "retryOpts should be nil to use defaults")
+	assert.False(t, client.httpRetryEnabled, "HTTP retry should be disabled by default")
 
-	// Verify that retry behavior works with a simple server test
 	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempt := attempts.Add(1)
@@ -382,12 +381,13 @@ func TestDefaultRetryConfig(t *testing.T) {
 	defer server.Close()
 
 	client.remote = server.Listener.Addr().String()
-	resp, err := client.sendHTTPRequestWithRetry("GET", "test", nil, nil)
-	assert.Nil(t, err, "Should succeed with default retry options")
+	resp, err := client.sendHTTPRequestMaybeRetry("GET", "test", nil, nil)
+	assert.NotNil(t, err, "Should fail without retry when HTTP retry is disabled")
+	assert.Nil(t, resp, "Response should be nil on error without retry")
 	if resp != nil {
 		_ = resp.Body.Close()
 	}
-	assert.GreaterOrEqual(t, int(attempts.Load()), 2, "Should have retried at least once")
+	assert.Equal(t, int32(1), attempts.Load(), "Should not retry when HTTP retry is disabled")
 }
 
 // TestHTTPRetry429TooManyRequests tests that 429 IS retried
